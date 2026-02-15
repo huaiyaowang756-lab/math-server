@@ -1,10 +1,19 @@
 from django.urls import path
 
-from . import views, views_knowledge
+from . import views, views_knowledge, views_documents
 
 urlpatterns = [
     path("formula/recognize/", views.recognize_formula, name="recognize_formula"),
     path("formula/recognize-url/", views.recognize_formula_url, name="recognize_formula_url"),
+    # 试卷/文档管理
+    path("documents/upload/", views_documents.upload_document, name="document_upload"),
+    path("documents/", views_documents.list_documents, name="document_list"),
+    path("documents/<str:doc_id>/", views_documents.get_document, name="document_detail"),
+    path("documents/<str:doc_id>/update/", views_documents.update_document, name="document_update"),
+    path("documents/<str:doc_id>/delete/", views_documents.delete_document, name="document_delete"),
+    path("documents/<str:doc_id>/download/", views_documents.download_document, name="document_download"),
+    path("documents/<str:doc_id>/preview-pdf/", views_documents.preview_document, name="document_preview"),
+    path("documents/<str:doc_id>/parse/", views_documents.parse_document, name="document_parse"),
     path("upload/", views.upload_docx, name="upload_docx"),
     path("upload/tasks/", views.list_upload_tasks, name="list_upload_tasks"),
     path("upload/tasks/<str:task_id>/", views.get_or_delete_upload_task, name="upload_task_detail"),

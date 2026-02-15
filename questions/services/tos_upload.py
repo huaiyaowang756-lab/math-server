@@ -118,3 +118,60 @@ def is_content_image_ext(ext: str) -> bool:
     """判断是否为内容图扩展名（非公式图）。"""
     return ext.lower() in CONTENT_IMAGE_EXTS
 
+
+# 试卷/文档支持的扩展名
+DOCUMENT_EXTS = (".doc", ".docx", ".pdf", ".ppt", ".pptx")
+DOC_CONTENT_TYPES = {
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pdf": "application/pdf",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+
+
+def upload_document_to_tos(file_bytes: bytes, filename: str) -> Optional[str]:
+    """
+    将文档（Word/PDF/PPT）上传到 TOS，使用内容 MD5 作为文件名。
+
+    Args:
+        file_bytes: 文件内容
+        filename: 原始文件名（用于取扩展名）
+
+    Returns:
+        上传成功返回可访问的 URL；失败或未配置返回 None
+    """
+    config = _load_tos_config()
+    if not config:
+        return None
+
+    ext = Path(filename).suffix.lower()
+    if ext not in DOCUMENT_EXTS:
+        return None
+
+    md5 = hashlib.md5(file_bytes).hexdigest()
+    prefix = (config.get("prefix") or "math-questions/images/").replace("images/", "documents/")
+    key = f"{prefix}{md5}{ext}"
+
+    try:
+        client = _get_s3_client(config)
+        bucket = config.get("bucket", "")
+        content_type = DOC_CONTENT_TYPES.get(ext, "application/octet-stream")
+        client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=file_bytes,
+            ContentType=content_type,
+        )
+    except Exception as e:
+        import sys
+        print(f"TOS 上传文档失败 {filename}: {e}", file=sys.stderr)
+        return None
+
+    base_url = config.get("public_base_url", "").rstrip("/")
+    if not base_url:
+        base_url = (config.get("endpoint_url") or "").rstrip("/")
+    if base_url:
+        return f"{base_url}/{key}"
+    return key
+
