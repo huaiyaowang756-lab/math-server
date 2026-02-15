@@ -1,30 +1,40 @@
 """
 将题目中的公式图（PNG）通过 pix2tex 识别为 LaTeX。
-移植自 formula_to_latex.py，改为可复用的模块函数。
+可选 LATEX_OCR_BACKEND=pix2text 切换为 Pix2Text。
 """
 
 import os
-import warnings
-
-os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
-warnings.filterwarnings("ignore", message=".*albumentations.*", category=UserWarning)
-warnings.filterwarnings("ignore", message=".*Pydantic.*", category=UserWarning)
-warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
-
 import re
 import sys
 from pathlib import Path
 
-MIN_DIM = 80
-PAD_BORDER = 25
+os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
+
+import warnings
+warnings.filterwarnings("ignore", message=".*albumentations.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*Pydantic.*", category=UserWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+
+MIN_DIM = 128  # 提高最小尺寸，模型对稍大图像识别更准
+PAD_BORDER = 30  # 适当留白便于模型判断公式边界
+
+_OCR_BACKEND = os.environ.get("LATEX_OCR_BACKEND", "pix2tex").strip().lower()
 
 
 def _get_latex_ocr():
+    """获取 OCR 模型，默认 pix2tex，可选 pix2text。"""
+    if _OCR_BACKEND == "pix2text":
+        try:
+            from pix2text import LatexOCR
+            from PIL import Image
+            return LatexOCR(), Image, "pix2text"
+        except ImportError:
+            pass
+
     try:
         from pix2tex.cli import LatexOCR
         from PIL import Image
-
-        return LatexOCR(), Image
+        return LatexOCR(), Image, "pix2tex"
     except ImportError as e:
         print("请先安装: pip install pix2tex Pillow", file=sys.stderr)
         raise RuntimeError("pix2tex not installed") from e
@@ -37,6 +47,17 @@ def _preprocess_image(Image_module, img):
         img = bg
     elif img.mode != "RGB":
         img = img.convert("RGB")
+
+    # 适度增强对比度与锐度，提升 WMF 转 PNG 的识别率
+    try:
+        from PIL import ImageEnhance
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(1.2)
+        enhancer = ImageEnhance.Sharpness(img)
+        img = enhancer.enhance(1.3)
+    except ImportError:
+        pass
+
     w, h = img.size
     if w < MIN_DIM or h < MIN_DIM:
         scale = max(MIN_DIM / w, MIN_DIM / h, 1.0)
@@ -111,15 +132,21 @@ def sanitize_latex(latex: str) -> str:
     return s
 
 
-def _image_to_latex(ocr_model, Image_module, image_path: Path) -> str | None:
+def _image_to_latex(ocr_model, Image_module, image_path: Path, backend: str = "pix2tex") -> str | None:
     """单张公式图片识别为 LaTeX，支持 PNG/JPEG 等 PIL 可读格式。"""
     if not image_path.exists():
         return None
     try:
         img = Image_module.open(image_path)
         img = _preprocess_image(Image_module, img)
-        out = ocr_model(img)
-        s = (out or "").strip()
+
+        if backend == "pix2text":
+            result = ocr_model.recognize(img)
+            s = (result.get("text") or "").strip()
+        else:
+            out = ocr_model(img)
+            s = (out or "").strip()
+
         if s:
             s = sanitize_latex(s)
         return s if s else None
@@ -133,8 +160,8 @@ def recognize_formula_image(image_path: Path) -> str | None:
     支持 PNG、JPEG 等常见图片格式。
     """
     try:
-        model, Image = _get_latex_ocr()
-        return _image_to_latex(model, Image, image_path)
+        model, Image, backend = _get_latex_ocr()
+        return _image_to_latex(model, Image, image_path, backend)
     except RuntimeError:
         return None
 
@@ -175,7 +202,7 @@ def convert_to_latex(questions: list, assets_dir: Path) -> dict:
         return result
 
     try:
-        model, Image = _get_latex_ocr()
+        model, Image, backend = _get_latex_ocr()
     except RuntimeError:
         result["failed"] = len(png_urls)
         return result
@@ -184,7 +211,7 @@ def convert_to_latex(questions: list, assets_dir: Path) -> dict:
     for url in sorted(png_urls):
         name = Path(url).name
         local = doc_assets / name
-        latex = _image_to_latex(model, Image, local)
+        latex = _image_to_latex(model, Image, local, backend)
         if latex:
             asset_to_latex[url] = latex
         else:

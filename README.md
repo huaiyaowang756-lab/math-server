@@ -7,7 +7,7 @@
 - Python 3.10+
 - MongoDB 6.0+（本地运行）
 - ImageMagick 或 LibreOffice（WMF 转 PNG）
-- pix2tex（可选，公式图转 LaTeX）
+- pix2tex（可选，公式图转 LaTeX）或 pix2text（`LATEX_OCR_BACKEND=pix2text`）
 
 ## 快速开始
 
@@ -29,6 +29,9 @@ python manage.py runserver 8000
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | /api/upload/ | 上传 docx 并解析 |
+| GET | /api/upload/tasks/ | 获取解析任务列表 |
+| GET | /api/upload/tasks/:id/ | 获取任务详情 |
+| DELETE | /api/upload/tasks/:id/ | 删除解析任务记录 |
 | POST | /api/questions/save/ | 保存题目到数据库 |
 | GET | /api/questions/ | 获取题目列表（分页） |
 | GET | /api/questions/:id/ | 获取单个题目 |

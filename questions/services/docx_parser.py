@@ -16,6 +16,7 @@ NS = {
     "pic": "http://schemas.openxmlformats.org/drawingml/2006/picture",
     "v": "urn:schemas-microsoft-com:vml",
     "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+    "m": "http://schemas.openxmlformats.org/officeDocument/2006/math",
 }
 
 # EMU (English Metric Units) to pixels at 96 DPI: 1 inch = 914400 EMU = 96 px
@@ -102,10 +103,14 @@ def _iter_body_children(body_el):
 
 
 def _paragraph_to_blocks(p_el, rels, media_index_map, next_asset_index):
+    from .omml_converter import omml_to_latex
+
     blocks = []
-    for run in p_el.findall(
-        ".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r"
-    ):
+    w_ns = NS["w"]
+    m_ns = NS["m"]
+
+    def _handle_run(run):
+        nonlocal next_asset_index
         text = _extract_text_from_run(run)
         embed_id = _get_embed_id_from_run(run)
         if text:
@@ -125,6 +130,24 @@ def _paragraph_to_blocks(p_el, rels, media_index_map, next_asset_index):
                 block["width"] = w_px
                 block["height"] = h_px
             blocks.append(block)
+
+    # 按文档顺序遍历段落的直接子元素，同时处理 w:r 和 m:oMath
+    for child in p_el:
+        tag = child.tag if isinstance(child.tag, str) else ""
+
+        if tag == f"{{{w_ns}}}r":
+            # 普通文本 / 图片 run
+            _handle_run(child)
+        elif tag in (f"{{{m_ns}}}oMath", f"{{{m_ns}}}oMathPara"):
+            # OMML 公式 → 直接转为 LaTeX，无需 OCR
+            latex = omml_to_latex(child)
+            if latex:
+                blocks.append({"type": "latex", "content": latex})
+        elif tag == f"{{{w_ns}}}hyperlink":
+            # 超链接内部的 run
+            for run in child.findall(f"{{{w_ns}}}r"):
+                _handle_run(run)
+
     return blocks, next_asset_index
 
 

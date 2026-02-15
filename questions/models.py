@@ -109,6 +109,53 @@ class Question(me.Document):
         )
 
 
+class UploadTask(me.Document):
+    """
+    试卷上传解析异步任务。
+    状态：pending -> processing -> completed | failed
+    """
+    meta = {
+        "collection": "upload_tasks",
+        "ordering": ["-created_at"],
+        "indexes": ["status", "created_at"],
+    }
+
+    source_filename = me.StringField(required=True)
+    status = me.StringField(
+        default="pending",
+        choices=("pending", "processing", "completed", "failed"),
+    )
+    progress = me.IntField(default=0)  # 0-100
+    error_msg = me.StringField(default="")
+    # 解析完成后的结果（与 process_docx 返回格式一致）
+    result = me.DictField(default=dict)  # session_id, questions, asset_base_url, stats
+    use_latex = me.BooleanField(default=True)
+    # 临时文件路径（任务完成后可清理）
+    docx_path = me.StringField(default="")
+
+    created_at = me.DateTimeField(default=datetime.datetime.utcnow)
+    updated_at = me.DateTimeField(default=datetime.datetime.utcnow)
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.datetime.utcnow()
+        return super().save(*args, **kwargs)
+
+    def to_dict(self):
+        d = {
+            "id": str(self.id),
+            "sourceFilename": self.source_filename,
+            "status": self.status,
+            "progress": self.progress,
+            "errorMsg": self.error_msg or "",
+            "useLatex": self.use_latex,
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if self.status == "completed" and self.result:
+            d["result"] = self.result
+        return d
+
+
 class KnowledgeCategory(me.Document):
     """知识分类节点，可多级嵌套（父分类下可包含子分类）。"""
     meta = {

@@ -4,7 +4,10 @@ from . import views, views_knowledge
 
 urlpatterns = [
     path("formula/recognize/", views.recognize_formula, name="recognize_formula"),
+    path("formula/recognize-url/", views.recognize_formula_url, name="recognize_formula_url"),
     path("upload/", views.upload_docx, name="upload_docx"),
+    path("upload/tasks/", views.list_upload_tasks, name="list_upload_tasks"),
+    path("upload/tasks/<str:task_id>/", views.get_or_delete_upload_task, name="upload_task_detail"),
     path("questions/save/", views.save_questions, name="save_questions"),
     path("questions/", views.list_questions, name="list_questions"),
     path("questions/batch/", views.delete_batch, name="delete_batch"),

@@ -54,6 +54,14 @@ def process_docx(
     # ========== 阶段一：按原始 type 解析（text、wmf、png、jpeg 等） ==========
     questions = parse_docx(dest_docx, work_dir)
 
+    # ========== 统计阶段一提取的 OMML 公式数量 ==========
+    omml_count = 0
+    for q in questions:
+        for key in ("questionBody", "answer", "analysis", "detailedSolution"):
+            for b in q.get(key) or []:
+                if b.get("type") == "latex":
+                    omml_count += 1
+
     # ========== 阶段二：WMF -> LaTeX；PNG/JPEG -> TOS ==========
     tos_stats = {"total": 0, "uploaded": 0, "skipped": 0, "failed": 0}
     wmf_stats = {"total": 0, "success": 0, "method": None, "trimmed": 0}
@@ -83,11 +91,43 @@ def process_docx(
                 else:
                     tos_stats["failed"] += 1
 
-    # 2b) WMF 公式 -> PNG，再（可选）-> LaTeX
-    wmf_stats = convert_wmf_to_png(work_dir)
+    # 2b) WMF 公式 -> PNG，再（可选）-> LaTeX 或上传 TOS
+    wmf_stats = convert_wmf_to_png(work_dir, for_latex=use_latex)
     questions = replace_wmf_urls(questions)
+    wmf_sizes = wmf_stats.get("wmf_sizes", {})
+
     if use_latex:
         latex_stats = convert_to_latex(questions, work_dir)
+    else:
+        # 保留为 PNG：上传公式图到 TOS（MD5 文件名），写入宽高
+        for q in questions:
+            for key in ("questionBody", "answer", "analysis", "detailedSolution"):
+                for b in q.get(key) or []:
+                    if b.get("type") not in ("image", "svg"):
+                        continue
+                    url = (b.get("url") or "").replace("\\", "/")
+                    if not url.endswith(".png"):
+                        continue
+                    name = Path(url).name
+                    wmf_name = Path(name).stem + ".wmf"
+                    if not (doc_assets / wmf_name).exists():
+                        continue
+                    local_path = doc_assets / name
+                    if not local_path.exists():
+                        tos_stats["skipped"] += 1
+                        continue
+                    tos_stats["total"] += 1
+                    tos_url = upload_content_image(local_path)
+                    if tos_url:
+                        b["url"] = tos_url
+                        tos_stats["uploaded"] += 1
+                        # 使用 WMF 文件头中的实际显示尺寸（96 DPI 像素值）
+                        w_wmf, h_wmf = wmf_sizes.get(name, (None, None))
+                        if w_wmf is not None and h_wmf is not None:
+                            b["width"] = w_wmf
+                            b["height"] = h_wmf
+                    else:
+                        tos_stats["failed"] += 1
 
     # ========== 阶段三：返回结果 ==========
     asset_base_url = f"{settings.MEDIA_URL}uploads/{session_id}/"
@@ -99,6 +139,7 @@ def process_docx(
         "asset_base_url": asset_base_url,
         "stats": {
             "question_count": len(questions),
+            "omml_extraction": {"count": omml_count},
             "tos_upload": tos_stats,
             "wmf_conversion": wmf_stats,
             "latex_conversion": latex_stats,
