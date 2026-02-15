@@ -1,0 +1,6 @@
+media/
+__pycache__/
+*.pyc
+.env
+config/tos.yaml
+db.sqlite3

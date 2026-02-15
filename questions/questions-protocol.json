@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Math questions export protocol",
+  "description": "Each question has mixed content blocks (text, image/svg/latex). Three-stage: (1) Original types text,wmf,png,jpeg; (2) WMF->LaTeX, PNG/JPEG->TOS; (3) Return.",
+  "type": "object",
+  "properties": {
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "index": { "type": "integer", "description": "Question number" },
+          "questionType": { "type": "string", "enum": ["single_choice", "multiple_choice", "fill_blank", "solution"], "description": "题型" },
+          "questionBody": {
+            "type": "array",
+            "description": "Mixed content: text and image/svg refs in order",
+            "items": {
+              "oneOf": [
+                { "type": "object", "properties": { "type": { "const": "text" }, "content": { "type": "string" } }, "required": ["type", "content"] },
+                { "type": "object", "properties": { "type": { "const": "latex" }, "content": { "type": "string" } }, "required": ["type", "content"] },
+                { "type": "object", "properties": { "type": { "enum": ["image", "svg"] }, "url": { "type": "string" }, "width": { "type": "integer" }, "height": { "type": "integer" } }, "required": ["type", "url"] }
+              ]
+            }
+          },
+          "answer": {
+            "type": "array",
+            "items": { "oneOf": [
+              { "type": "object", "properties": { "type": { "const": "text" }, "content": { "type": "string" } }, "required": ["type", "content"] },
+              { "type": "object", "properties": { "type": { "enum": ["image", "svg"] }, "url": { "type": "string" }, "width": { "type": "integer" }, "height": { "type": "integer" } }, "required": ["type", "url"] }
+            ]}
+          },
+          "analysis": { "type": "array", "description": "Optional 分析 section", "items": {} },
+          "detailedSolution": { "type": "array", "description": "Optional 详解 section", "items": {} }
+        },
+        "required": ["index", "questionBody", "answer"]
+      }
+    }
+  },
+  "required": ["questions"]
+}

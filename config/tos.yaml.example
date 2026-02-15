@@ -1,0 +1,24 @@
+# TOS（对象存储）配置
+# 用于保存试题中的内容图片（如函数图象），公式图片仍存本地 session
+# 支持 S3 兼容 API（火山引擎 TOS、腾讯 COS、阿里 OSS 等）
+# 复制为 tos.yaml 并填入实际密钥：cp config/tos.yaml.example config/tos.yaml
+
+tos:
+  # 是否启用 TOS 上传（未配置或 false 时，内容图仍存本地）
+  enabled: false
+
+  # 存储桶配置
+  endpoint_url: "https://your-bucket.tos.volces.com"  # 或 S3 兼容 endpoint
+  bucket: "your-bucket-name"
+  region: "cn-beijing"
+
+  # 访问密钥（从控制台获取）
+  access_key_id: "your-access-key-id"
+  secret_access_key: "your-secret-access-key"
+
+  # 对象存储路径前缀，上传后的 key 为 {prefix}{md5}.{ext}
+  prefix: "math-questions/images/"
+
+  # 公开读域名（用于拼接最终 URL，若不填则使用 endpoint_url + bucket）
+  # 例如：https://your-bucket.tos.volces.com 或自定义 CDN 域名
+  public_base_url: ""
