@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import views, views_knowledge
 
 urlpatterns = [
     path("formula/recognize/", views.recognize_formula, name="recognize_formula"),
@@ -11,4 +11,16 @@ urlpatterns = [
     path("questions/<str:question_id>/", views.get_question, name="get_question"),
     path("questions/<str:question_id>/update/", views.update_question, name="update_question"),
     path("questions/<str:question_id>/delete/", views.delete_question, name="delete_question"),
+    # 知识管理
+    path("knowledge/tree/", views_knowledge.knowledge_tree, name="knowledge_tree"),
+    path("knowledge/categories/", views_knowledge.list_categories, name="knowledge_list_categories"),
+    path("knowledge/categories/create/", views_knowledge.create_category, name="knowledge_create_category"),
+    path("knowledge/categories/<str:category_id>/", views_knowledge.get_category, name="knowledge_get_category"),
+    path("knowledge/categories/<str:category_id>/update/", views_knowledge.update_category, name="knowledge_update_category"),
+    path("knowledge/categories/<str:category_id>/delete/", views_knowledge.delete_category, name="knowledge_delete_category"),
+    path("knowledge/nodes/", views_knowledge.list_nodes, name="knowledge_list_nodes"),
+    path("knowledge/nodes/create/", views_knowledge.create_node, name="knowledge_create_node"),
+    path("knowledge/nodes/<str:node_id>/", views_knowledge.get_node, name="knowledge_get_node"),
+    path("knowledge/nodes/<str:node_id>/update/", views_knowledge.update_node, name="knowledge_update_node"),
+    path("knowledge/nodes/<str:node_id>/delete/", views_knowledge.delete_node, name="knowledge_delete_node"),
 ]

@@ -314,7 +314,10 @@ def _split_into_questions(paragraphs_blocks):
 
 
 def _merge_consecutive_text_blocks(blocks: list) -> list:
-    """将连续的 type 为 text 的块合并为一个。"""
+    """
+    将连续的 type 为 text 的块合并为一个；
+    合并后按换行拆开：遇到换行则单独拆成一个节点（content 为 \\n），不跨换行合并。
+    """
     if not blocks:
         return blocks
     result = []
@@ -323,7 +326,19 @@ def _merge_consecutive_text_blocks(blocks: list) -> list:
             result[-1]["content"] = (result[-1].get("content") or "") + (b.get("content") or "")
         else:
             result.append(dict(b))
-    return result
+
+    # 每个 text 块按换行拆开，换行单独成节点（空串不落块）
+    out = []
+    for b in result:
+        if b.get("type") != "text":
+            out.append(b)
+            continue
+        content = b.get("content") or ""
+        parts = re.split(r"(\n)", content)  # 保留 \n 在结果中
+        for p in parts:
+            if p:  # 跳过空串，保留 \n
+                out.append({"type": "text", "content": p})
+    return out
 
 
 def parse_docx(docx_path: Path, assets_dir: Path) -> list[dict]:
