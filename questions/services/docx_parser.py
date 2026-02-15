@@ -403,6 +403,24 @@ def parse_docx(docx_path: Path, assets_dir: Path) -> list[dict]:
             if key in q and q[key]:
                 q[key] = _merge_consecutive_text_blocks(q[key])
 
+    # 去除题干首块中的序号（避免下载时重复出现题号）
+    for q in questions:
+        body = q.get("questionBody") or []
+        for i, b in enumerate(body):
+            if b.get("type") != "text" or not b.get("content"):
+                continue
+            content = b["content"]
+            # 匹配开头序号：数字 + 中文/英文句号或顿号 + 可选空格
+            content = re.sub(r"^\d+[．.、]\s*", "", content, count=1)
+            # 若首块仅为序号（如 "1" 或 "1." 单独成块），直接移除该块
+            if not content.strip():
+                body.pop(i)
+                # 继续检查下一个块（可能成为新的首块）
+                break
+            if content != b["content"]:
+                body[i] = {**b, "content": content}
+            break
+
     # 清理空数组
     for q in questions:
         for key in ("analysis", "detailedSolution"):

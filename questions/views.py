@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -401,6 +401,55 @@ def delete_question(request, question_id):
         return JsonResponse({"success": True}, json_dumps_params=JSON_OPTIONS)
     except Question.DoesNotExist:
         return JsonResponse({"error": "题目不存在"}, status=404, json_dumps_params=JSON_OPTIONS)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def export_questions(request):
+    """
+    导出选中题目为 Word 文档。
+    POST /api/questions/export/
+    - JSON body: { ids: [...], mode: "teacher"|"student"|"normal" }
+    - 返回 .docx 文件流
+    """
+    data = _json_body(request)
+    if not data:
+        return JsonResponse({"error": "无效的请求体"}, status=400, json_dumps_params=JSON_OPTIONS)
+
+    ids = data.get("ids", [])
+    mode = data.get("mode", "teacher")
+
+    if not ids:
+        return JsonResponse({"error": "请选择题目"}, status=400, json_dumps_params=JSON_OPTIONS)
+    if mode not in ("teacher", "student", "normal"):
+        return JsonResponse({"error": "无效的导出模式"}, status=400, json_dumps_params=JSON_OPTIONS)
+
+    questions = []
+    for qid in ids:
+        try:
+            q = Question.objects.get(id=qid)
+            questions.append(q.to_dict())
+        except Question.DoesNotExist:
+            continue
+
+    if not questions:
+        return JsonResponse({"error": "未找到题目"}, status=404, json_dumps_params=JSON_OPTIONS)
+
+    from .services.docx_exporter import export_questions_docx
+
+    buf = export_questions_docx(questions, mode=mode)
+
+    mode_labels = {"teacher": "教师版", "student": "学生版", "normal": "普通版"}
+    filename = f"试卷_{mode_labels.get(mode, mode)}.docx"
+
+    response = HttpResponse(
+        buf.read(),
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    # URL-encode 中文文件名
+    from urllib.parse import quote
+    response["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(filename)}"
+    return response
 
 
 @csrf_exempt

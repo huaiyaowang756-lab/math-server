@@ -5,3 +5,5 @@ Pillow>=10.0
 pix2tex>=0.1.0
 boto3>=1.28
 PyYAML>=6.0
+python-docx>=1.1
+latex2mathml>=3.77

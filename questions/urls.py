@@ -10,6 +10,7 @@ urlpatterns = [
     path("upload/tasks/<str:task_id>/", views.get_or_delete_upload_task, name="upload_task_detail"),
     path("questions/save/", views.save_questions, name="save_questions"),
     path("questions/", views.list_questions, name="list_questions"),
+    path("questions/export/", views.export_questions, name="export_questions"),
     path("questions/batch/", views.delete_batch, name="delete_batch"),
     path("questions/<str:question_id>/", views.get_question, name="get_question"),
     path("questions/<str:question_id>/update/", views.update_question, name="update_question"),
