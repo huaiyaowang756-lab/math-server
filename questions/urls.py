@@ -26,6 +26,7 @@ urlpatterns = [
     path("upload/tasks/<str:task_id>/", views.get_or_delete_upload_task, name="upload_task_detail"),
     path("questions/save/", views.save_questions, name="save_questions"),
     path("chat/", views_chat.chat, name="chat"),
+    path("chat/stream/", views_chat.chat_stream, name="chat_stream"),
     path("questions/recommend/", views_recommend.recommend, name="questions_recommend"),
     path("questions/", views.list_questions, name="list_questions"),
     path("questions/export/", views.export_questions, name="export_questions"),

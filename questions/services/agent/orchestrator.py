@@ -2,10 +2,46 @@
 编排器：根据意图识别结果路由到对应技能执行。
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Iterator
 
 from .intents import recognize_intent, IntentType
 from .skills import get_skill
+
+
+def process_message_stream(
+    user_query: str,
+    limit: int = 5,
+    recall_limit: int = 20,
+    llm_model: str = None,
+) -> Iterator[Dict[str, Any]]:
+    """
+    流式入口：yield SSE 事件。
+    事件格式：{"type": "intent"|"chunk"|"done", ...}
+    """
+    intent: IntentType = recognize_intent(user_query, llm_model=llm_model)
+    yield {"type": "intent", "intent": intent}
+
+    skill = get_skill(intent)
+    if not skill:
+        skill = get_skill("chat")
+
+    invoke_stream = getattr(skill, "invoke_stream", None)
+    if invoke_stream:
+        for evt in invoke_stream(
+            user_query=user_query,
+            limit=limit,
+            recall_limit=recall_limit,
+            llm_model=llm_model,
+        ):
+            yield evt
+    else:
+        result = skill.invoke(
+            user_query=user_query,
+            limit=limit,
+            recall_limit=recall_limit,
+            llm_model=llm_model,
+        )
+        yield {"type": "done", **result}
 
 
 def process_message(

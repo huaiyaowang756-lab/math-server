@@ -6,6 +6,8 @@ from typing import Dict, Optional
 
 from .base import BaseSkill
 from .question_recommend import QuestionRecommendSkill
+from .question_generate import QuestionGenerateSkill
+from .assemble_paper import AssemblePaperSkill
 from .chat import ChatSkill
 
 # 技能注册表：intent -> skill
@@ -15,8 +17,12 @@ _registry: Dict[str, BaseSkill] = {}
 def _init_registry():
     if not _registry:
         recommend = QuestionRecommendSkill()
+        generate = QuestionGenerateSkill()
+        assemble = AssemblePaperSkill()
         chat = ChatSkill()
         _registry[recommend.intent] = recommend
+        _registry[generate.intent] = generate
+        _registry[assemble.intent] = assemble
         _registry[chat.intent] = chat
 
 

@@ -4,11 +4,11 @@
 
 import json
 
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .services.agent import process_message
+from .services.agent import process_message, process_message_stream
 
 JSON_OPTIONS = {"ensure_ascii": False}
 
@@ -70,3 +70,42 @@ def chat(request):
             status=500,
             json_dumps_params=JSON_OPTIONS,
         )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def chat_stream(request):
+    """
+    POST /api/chat/stream/
+    流式输出，返回 SSE。事件：intent -> chunk(可选) -> done
+    """
+    data = _json_body(request)
+    if not data:
+        return JsonResponse({"error": "无效请求体"}, status=400, json_dumps_params=JSON_OPTIONS)
+
+    query = (data.get("query") or "").strip()
+    if not query:
+        return JsonResponse({"error": "query 不能为空"}, status=400, json_dumps_params=JSON_OPTIONS)
+
+    limit = data.get("limit", 5)
+    if not isinstance(limit, int) or limit < 1 or limit > 20:
+        limit = 5
+    recall_limit = data.get("recall_limit", 20)
+    llm_model = (data.get("llm_model") or "").strip() or None
+
+    def gen():
+        try:
+            for evt in process_message_stream(
+                user_query=query,
+                limit=limit,
+                recall_limit=recall_limit,
+                llm_model=llm_model,
+            ):
+                yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+
+    resp = StreamingHttpResponse(gen(), content_type="text/event-stream")
+    resp["Cache-Control"] = "no-cache"
+    resp["X-Accel-Buffering"] = "no"
+    return resp

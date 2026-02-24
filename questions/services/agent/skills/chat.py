@@ -2,7 +2,7 @@
 闲聊技能：无匹配技能时，使用大模型进行通用对话。
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Iterator
 
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -52,6 +52,32 @@ class ChatSkill(BaseSkill):
             content = f"抱歉，闲聊功能暂时不可用：{str(e)}"
 
         return {
+            "content": content,
+            "questions": None,
+            "intent": self.intent,
+            "skill_used": self.name,
+        }
+
+    def invoke_stream(self, user_query: str, **kwargs) -> Iterator[Dict[str, Any]]:
+        """流式输出。"""
+        llm_model = kwargs.get("llm_model")
+
+        try:
+            llm = _get_llm(model_override=llm_model)
+            full_content = []
+            for chunk in llm.stream([
+                SystemMessage(content=CHAT_SYSTEM),
+                HumanMessage(content=user_query),
+            ]):
+                if hasattr(chunk, "content") and chunk.content:
+                    full_content.append(chunk.content)
+                    yield {"type": "chunk", "content": chunk.content}
+            content = "".join(full_content).strip() or "抱歉，我暂时无法回答。"
+        except Exception as e:
+            content = f"抱歉，闲聊功能暂时不可用：{str(e)}"
+
+        yield {
+            "type": "done",
             "content": content,
             "questions": None,
             "intent": self.intent,

@@ -5,7 +5,7 @@
 """
 
 from .intents import recognize_intent
-from .orchestrator import process_message
+from .orchestrator import process_message, process_message_stream
 from .skills import get_skill_registry
 
-__all__ = ["recognize_intent", "process_message", "get_skill_registry"]
+__all__ = ["recognize_intent", "process_message", "process_message_stream", "get_skill_registry"]

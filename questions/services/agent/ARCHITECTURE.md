@@ -19,6 +19,8 @@ agent/
 │   ├── __init__.py     # 技能注册表
 │   ├── base.py         # 技能基类
 │   ├── question_recommend.py  # 推荐试题技能
+│   ├── question_generate.py   # 生成试题技能
+│   ├── assemble_paper.py      # 组卷技能
 │   └── chat.py         # 闲聊技能
 └── ARCHITECTURE.md     # 本文档
 ```
@@ -27,7 +29,9 @@ agent/
 
 | 意图 | 说明 | 技能 |
 |------|------|------|
-| recommend_questions | 用户想获取/推荐数学题目 | QuestionRecommendSkill |
+| recommend_questions | 用户想从题库获取/推荐已有题目 | QuestionRecommendSkill |
+| generate_questions | 用户想生成/出题新的数学题目 | QuestionGenerateSkill |
+| assemble_paper | 用户想组卷、出试卷 | AssemblePaperSkill |
 | chat | 闲聊、问候等 | ChatSkill |
 
 ## 扩展新技能
