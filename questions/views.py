@@ -14,9 +14,23 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import Question, UploadTask
+from .models import Question, UploadTask, Document, KnowledgePoint
 from .services.latex_converter import recognize_formula_image
 from .services.async_task import start_parse_task
+from .services.tos_upload import upload_document_to_tos
+
+
+def _build_kp_map(questions):
+    """从题目列表中收集所有 knowledge_point ID，批量查询并返回 {id: name} 映射。"""
+    all_ids = set()
+    for q in questions:
+        all_ids.update(q.knowledge_points or [])
+    if not all_ids:
+        return {}
+    kp_map = {}
+    for kp in KnowledgePoint.objects.filter(id__in=list(all_ids)):
+        kp_map[str(kp.id)] = kp.name
+    return kp_map
 
 # 中文/英文等直接输出为原文，不转成 \uXXXX
 JSON_OPTIONS = {"ensure_ascii": False}
@@ -173,6 +187,19 @@ def upload_docx(request):
         return JsonResponse({"error": "仅支持 .docx 文件"}, status=400, json_dumps_params=JSON_OPTIONS)
 
     use_latex = request.POST.get("use_latex", "1") != "0"
+    file_bytes = b"".join(uploaded.chunks())
+
+    # 保存到 TOS 并创建试卷记录，便于题目保存时记录来源试卷
+    document_id = ""
+    url = upload_document_to_tos(file_bytes, uploaded.name)
+    if url:
+        doc = Document(
+            url=url,
+            filename=uploaded.name,
+            doc_type="exam",
+        )
+        doc.save()
+        document_id = str(doc.id)
 
     # 保存到 media/uploads 下的临时目录，任务完成后由 async_task 删除
     task_dir = Path(settings.MEDIA_ROOT) / "uploads" / "_tasks"
@@ -181,9 +208,7 @@ def upload_docx(request):
     tmp_path = task_dir / tmp_name
 
     try:
-        with open(tmp_path, "wb") as f:
-            for chunk in uploaded.chunks():
-                f.write(chunk)
+        tmp_path.write_bytes(file_bytes)
     except Exception as e:
         try:
             tmp_path.unlink(missing_ok=True)
@@ -193,6 +218,7 @@ def upload_docx(request):
 
     task = UploadTask(
         source_filename=uploaded.name,
+        document_id=document_id,
         status="pending",
         progress=0,
         use_latex=use_latex,
@@ -266,7 +292,7 @@ def save_questions(request):
     """
     保存确认后的题目到 MongoDB。
     POST /api/questions/save/
-    - JSON body: { session_id, source_filename, asset_base_url, questions: [...] }
+    - JSON body: { session_id, source_filename, asset_base_url, source_document_id?, source_document_filename?, questions: [...] }
     """
     data = _json_body(request)
     if not data:
@@ -279,6 +305,11 @@ def save_questions(request):
     session_id = data.get("session_id", "")
     source_file = data.get("source_filename", "")
     asset_base_url = data.get("asset_base_url", "")
+    source_document_id = data.get("source_document_id", "") or ""
+    source_document_filename = data.get("source_document_filename", "") or ""
+
+    # 预设字段：来自上传时的预设或显式传入
+    presets = data.get("presets") or {}
 
     saved_ids = []
     for q_data in questions_data:
@@ -287,6 +318,9 @@ def save_questions(request):
             source_file=source_file,
             session_id=session_id,
             asset_base_url=asset_base_url,
+            source_document_id=source_document_id,
+            source_document_filename=source_document_filename,
+            presets=presets,
         )
         q.save()
         saved_ids.append(str(q.id))
@@ -309,19 +343,32 @@ def list_questions(request):
     page_size = int(request.GET.get("page_size", 20))
     question_type = request.GET.get("question_type", "")
     status = request.GET.get("status", "")
+    difficulty = request.GET.get("difficulty", "").strip()
+    category = request.GET.get("category", "").strip()
+    region = request.GET.get("region", "").strip()
+    scenario = request.GET.get("scenario", "").strip()
 
     qs = Question.objects
     if question_type:
         qs = qs.filter(question_type=question_type)
     if status and status in ("pending_verification", "online"):
         qs = qs.filter(status=status)
+    if difficulty:
+        qs = qs.filter(difficulty=difficulty)
+    if category:
+        qs = qs.filter(categories=category)
+    if region:
+        qs = qs.filter(regions=region)
+    if scenario:
+        qs = qs.filter(scenario=scenario)
 
     total = qs.count()
     offset = (page - 1) * page_size
-    questions = qs.skip(offset).limit(page_size)
+    questions = list(qs.skip(offset).limit(page_size))
+    kp_map = _build_kp_map(questions)
 
     return JsonResponse({
-        "questions": [q.to_dict() for q in questions],
+        "questions": [q.to_dict(kp_map=kp_map) for q in questions],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -337,7 +384,8 @@ def get_question(request, question_id):
     """
     try:
         q = Question.objects.get(id=question_id)
-        return JsonResponse({"question": q.to_dict()}, json_dumps_params=JSON_OPTIONS)
+        kp_map = _build_kp_map([q])
+        return JsonResponse({"question": q.to_dict(kp_map=kp_map)}, json_dumps_params=JSON_OPTIONS)
     except Question.DoesNotExist:
         return JsonResponse({"error": "题目不存在"}, status=404, json_dumps_params=JSON_OPTIONS)
 
@@ -384,8 +432,36 @@ def update_question(request, question_id):
     if "status" in data and data["status"] in ("pending_verification", "online"):
         q.status = data["status"]
 
+    # 新增字段
+    if "difficulty" in data:
+        q.difficulty = str(data["difficulty"] or "").strip()
+    if "categories" in data:
+        v = data["categories"]
+        q.categories = [str(t).strip() for t in v if t] if isinstance(v, list) else []
+    if "regions" in data:
+        v = data["regions"]
+        q.regions = [str(t).strip() for t in v if t] if isinstance(v, list) else []
+    if "scenario" in data:
+        q.scenario = str(data["scenario"] or "").strip()
+    if "knowledgePoints" in data:
+        v = data["knowledgePoints"]
+        q.knowledge_points = [str(t).strip() for t in v if t] if isinstance(v, list) else []
+    if "description" in data:
+        q.description = str(data["description"] or "").strip()
+    if "features" in data:
+        raw = data["features"]
+        if isinstance(raw, list):
+            q.features = [
+                [str(pair[0] or "").strip(), str(pair[1] or "").strip()]
+                for pair in raw
+                if isinstance(pair, list) and len(pair) >= 2
+            ]
+        else:
+            q.features = []
+
     q.save()
-    return JsonResponse({"success": True, "question": q.to_dict()}, json_dumps_params=JSON_OPTIONS)
+    kp_map = _build_kp_map([q])
+    return JsonResponse({"success": True, "question": q.to_dict(kp_map=kp_map)}, json_dumps_params=JSON_OPTIONS)
 
 
 @csrf_exempt

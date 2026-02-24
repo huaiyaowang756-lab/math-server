@@ -1,10 +1,16 @@
 from django.urls import path
 
-from . import views, views_knowledge, views_documents
+from . import views, views_knowledge, views_documents, views_tags
 
 urlpatterns = [
     path("formula/recognize/", views.recognize_formula, name="recognize_formula"),
     path("formula/recognize-url/", views.recognize_formula_url, name="recognize_formula_url"),
+    # 标签管理（难度、分类、地区、场景）
+    path("tags/", views_tags.list_tags, name="list_tags"),
+    path("tags/create/", views_tags.create_tag, name="create_tag"),
+    path("tags/<str:tag_id>/update/", views_tags.update_tag, name="update_tag"),
+    path("tags/<str:tag_id>/delete/", views_tags.delete_tag, name="delete_tag"),
+    path("tags/sort/", views_tags.batch_sort_tags, name="batch_sort_tags"),
     # 试卷/文档管理
     path("documents/upload/", views_documents.upload_document, name="document_upload"),
     path("documents/", views_documents.list_documents, name="document_list"),
@@ -24,15 +30,13 @@ urlpatterns = [
     path("questions/<str:question_id>/", views.get_question, name="get_question"),
     path("questions/<str:question_id>/update/", views.update_question, name="update_question"),
     path("questions/<str:question_id>/delete/", views.delete_question, name="delete_question"),
-    # 知识管理
+    # 知识管理（统一知识节点树）
     path("knowledge/tree/", views_knowledge.knowledge_tree, name="knowledge_tree"),
-    path("knowledge/categories/", views_knowledge.list_categories, name="knowledge_list_categories"),
-    path("knowledge/categories/create/", views_knowledge.create_category, name="knowledge_create_category"),
-    path("knowledge/categories/<str:category_id>/", views_knowledge.get_category, name="knowledge_get_category"),
-    path("knowledge/categories/<str:category_id>/update/", views_knowledge.update_category, name="knowledge_update_category"),
-    path("knowledge/categories/<str:category_id>/delete/", views_knowledge.delete_category, name="knowledge_delete_category"),
-    path("knowledge/nodes/", views_knowledge.list_nodes, name="knowledge_list_nodes"),
+    path("knowledge/nodes/search/", views_knowledge.search_nodes, name="knowledge_search_nodes"),
+    path("knowledge/nodes/batch/", views_knowledge.batch_get_nodes, name="knowledge_batch_nodes"),
+    path("knowledge/nodes/sort/", views_knowledge.batch_sort_nodes, name="knowledge_sort_nodes"),
     path("knowledge/nodes/create/", views_knowledge.create_node, name="knowledge_create_node"),
+    path("knowledge/nodes/", views_knowledge.list_nodes, name="knowledge_list_nodes"),
     path("knowledge/nodes/<str:node_id>/", views_knowledge.get_node, name="knowledge_get_node"),
     path("knowledge/nodes/<str:node_id>/update/", views_knowledge.update_node, name="knowledge_update_node"),
     path("knowledge/nodes/<str:node_id>/delete/", views_knowledge.delete_node, name="knowledge_delete_node"),

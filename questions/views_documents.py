@@ -355,12 +355,21 @@ def parse_document(request, doc_id):
             json_dumps_params=JSON_OPTIONS,
         )
 
+    # 预设字段：解析出的题目将默认使用这些值
+    presets = data.get("presets") or {} if isinstance(data, dict) else {}
+
     task = UploadTask(
         source_filename=doc.filename or "试卷.docx",
+        document_id=str(doc.id),
         status="pending",
         progress=0,
         use_latex=use_latex,
         docx_path=str(tmp_path.resolve()),
+        preset_difficulty=str(presets.get("difficulty", "") or "").strip(),
+        preset_categories=[str(t).strip() for t in presets.get("categories", []) if t] if isinstance(presets.get("categories"), list) else [],
+        preset_regions=[str(t).strip() for t in presets.get("regions", []) if t] if isinstance(presets.get("regions"), list) else [],
+        preset_scenario=str(presets.get("scenario", "") or "").strip(),
+        preset_knowledge_points=[str(t).strip() for t in presets.get("knowledgePoints", []) if t] if isinstance(presets.get("knowledgePoints"), list) else [],
     )
     task.save()
 
