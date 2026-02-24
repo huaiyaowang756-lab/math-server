@@ -14,6 +14,7 @@ class Question(me.Document):
     meta = {
         "collection": "questions",
         "ordering": ["-created_at"],
+        "strict": False,  # 忽略库中已废弃字段（如 single_docx_url），避免 FieldDoesNotExist
         "indexes": ["question_type", "source_file", "created_at",
                     "difficulty", "categories", "regions", "scenario", "question_type_ids"],
     }
@@ -43,6 +44,8 @@ class Question(me.Document):
     # 来源试卷：便于与原卷对比（试卷管理解析 or 导入试题上传后都会落库试卷记录）
     source_document_id = me.StringField(default="")
     source_document_filename = me.StringField(default="")
+    # 来源卷内题目索引（库中已有数据携带，模型兼容）
+    source_body_indices = me.ListField(me.IntField(), default=list)
 
     # 题目状态：待校验（保存后默认）→ 人工确认后改为上线
     status = me.StringField(

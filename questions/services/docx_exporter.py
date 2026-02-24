@@ -397,7 +397,7 @@ def _add_blocks_to_paragraph(para, blocks, asset_base_url=""):
     """
     将内容块追加到给定段落中，严格按协议决定是否换行：
     - text 块中的 \\n → 换行（新段落）
-    - text / latex / image 块 → 同一段落（内联）
+    - text / latex / image 块按解析顺序依次追加，不额外插入间距（与源文档一致）
     返回涉及的段落列表（用于统一设置底色等）。
     """
     doc = para.part.document
@@ -410,7 +410,6 @@ def _add_blocks_to_paragraph(para, blocks, asset_base_url=""):
             content = block.get("content", "")
             if not content:
                 continue
-            # 只在协议明确 \n 时换行
             lines = content.split("\n")
             for j, line in enumerate(lines):
                 if j > 0:

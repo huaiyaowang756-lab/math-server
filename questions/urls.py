@@ -1,7 +1,7 @@
 from django.urls import path
 
 from . import views, views_knowledge, views_documents, views_tags, views_question_types
-from . import views_recommend, views_ops, views_llm, views_chat
+from . import views_recommend, views_ops, views_llm, views_chat, views_auth
 
 urlpatterns = [
     path("formula/recognize/", views.recognize_formula, name="recognize_formula"),
@@ -25,8 +25,12 @@ urlpatterns = [
     path("upload/tasks/", views.list_upload_tasks, name="list_upload_tasks"),
     path("upload/tasks/<str:task_id>/", views.get_or_delete_upload_task, name="upload_task_detail"),
     path("questions/save/", views.save_questions, name="save_questions"),
+    path("auth/register/", views_auth.register, name="auth_register"),
+    path("auth/login/", views_auth.login, name="auth_login"),
     path("chat/", views_chat.chat, name="chat"),
     path("chat/stream/", views_chat.chat_stream, name="chat_stream"),
+    path("chat/history/", views_chat.get_chat_history, name="chat_history_get"),
+    path("chat/history/save/", views_chat.save_chat_history, name="chat_history_save"),
     path("questions/recommend/", views_recommend.recommend, name="questions_recommend"),
     path("questions/", views.list_questions, name="list_questions"),
     path("questions/export/", views.export_questions, name="export_questions"),

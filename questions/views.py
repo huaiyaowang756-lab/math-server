@@ -506,13 +506,66 @@ def delete_question(request, question_id):
         return JsonResponse({"error": "题目不存在"}, status=404, json_dumps_params=JSON_OPTIONS)
 
 
+def _normalize_question_for_export(q):
+    """
+    将题目 dict 规范为导出所需格式（与 Question.to_dict 一致：camelCase，含 questionBody/answer 等）。
+    支持来自推荐/组卷的 to_dict 或来自生成题目的解析结果。
+    """
+    # 兼容前端可能传的 snake_case
+    def get(key, *alt):
+        v = q.get(key)
+        for a in alt:
+            if v is not None:
+                break
+            v = q.get(a)
+        return v
+
+    body = get("questionBody", "question_body") or []
+    answer = get("answer") or []
+    analysis = get("analysis") or []
+    detailed = get("detailedSolution", "detailed_solution") or []
+    qtype = get("questionType", "question_type") or "solution"
+    base = get("assetBaseUrl", "asset_base_url") or ""
+
+    def ensure_blocks(blocks):
+        if not blocks:
+            return []
+        out = []
+        for b in blocks:
+            if isinstance(b, dict):
+                out.append({
+                    "type": b.get("type", "text"),
+                    "content": b.get("content", ""),
+                    "url": b.get("url"),
+                    "width": b.get("width"),
+                    "height": b.get("height"),
+                })
+            else:
+                out.append({"type": "text", "content": str(b)})
+        return out
+
+    return {
+        "id": get("id"),
+        "index": get("index", 0),
+        "questionType": qtype,
+        "questionBody": ensure_blocks(body),
+        "answer": ensure_blocks(answer),
+        "analysis": ensure_blocks(analysis),
+        "detailedSolution": ensure_blocks(detailed),
+        "assetBaseUrl": base,
+    }
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def export_questions(request):
     """
-    导出选中题目为 Word 文档。
+    导出选中题目为 Word 试卷（支持多选后下载）。
     POST /api/questions/export/
-    - JSON body: { ids: [...], mode: "teacher"|"student"|"normal" }
+    - JSON body:
+      - ids: 题目 ID 列表（推荐/试卷推荐等已入库题目）
+      - questions: 题目 dict 列表（与 to_dict 格式一致，用于未入库题目如生成题；可与 ids 同时传，合并导出）
+      - mode: "teacher"|"student"|"normal"
     - 返回 .docx 文件流
     """
     data = _json_body(request)
@@ -520,23 +573,31 @@ def export_questions(request):
         return JsonResponse({"error": "无效的请求体"}, status=400, json_dumps_params=JSON_OPTIONS)
 
     ids = data.get("ids", [])
+    questions_payload = data.get("questions", [])
     mode = data.get("mode", "teacher")
 
-    if not ids:
-        return JsonResponse({"error": "请选择题目"}, status=400, json_dumps_params=JSON_OPTIONS)
     if mode not in ("teacher", "student", "normal"):
         return JsonResponse({"error": "无效的导出模式"}, status=400, json_dumps_params=JSON_OPTIONS)
 
     questions = []
-    for qid in ids:
+    # 未入库题目（如生成题）：直接使用传入的题目 dict
+    for q in questions_payload or []:
+        if isinstance(q, dict) and (q.get("questionBody") or q.get("question_body")):
+            questions.append(_normalize_question_for_export(q))
+    # 已入库题目（推荐/试卷推荐）：按 id 从库中加载，可与上面混合多选
+    for qid in ids or []:
         try:
             q = Question.objects.get(id=qid)
-            questions.append(q.to_dict())
+            questions.append(_normalize_question_for_export(q.to_dict()))
         except Question.DoesNotExist:
             continue
 
     if not questions:
-        return JsonResponse({"error": "未找到题目"}, status=404, json_dumps_params=JSON_OPTIONS)
+        return JsonResponse(
+            {"error": "请选择题目（传入 ids 或 questions），且至少有一道有效题目"},
+            status=400,
+            json_dumps_params=JSON_OPTIONS,
+        )
 
     from .services.docx_exporter import export_questions_docx
 
@@ -549,7 +610,6 @@ def export_questions(request):
         buf.read(),
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
-    # URL-encode 中文文件名
     from urllib.parse import quote
     response["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(filename)}"
     return response

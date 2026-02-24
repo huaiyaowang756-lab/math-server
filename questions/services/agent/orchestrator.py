@@ -13,11 +13,17 @@ def process_message_stream(
     limit: int = 5,
     recall_limit: int = 20,
     llm_model: str = None,
+    history: list = None,
 ) -> Iterator[Dict[str, Any]]:
     """
     流式入口：yield SSE 事件。
-    事件格式：{"type": "intent"|"chunk"|"done", ...}
+    事件格式：{"type": "started"|"intent"|"chunk"|"done", ...}
+    history: 多轮对话历史 [{role, content, questions?, intent}, ...]，最多 20 轮，仅闲聊技能使用。
+
+    首包延迟原因：必须先完成一次意图识别 LLM 调用（阻塞），才能下发 intent 并开始技能；
+    因此先 yield started，前端可立即显示「正在识别意图…」，再等 intent / chunk。
     """
+    yield {"type": "started"}
     intent: IntentType = recognize_intent(user_query, llm_model=llm_model)
     yield {"type": "intent", "intent": intent}
 
@@ -32,6 +38,7 @@ def process_message_stream(
             limit=limit,
             recall_limit=recall_limit,
             llm_model=llm_model,
+            history=history or [],
         ):
             yield evt
     else:
@@ -40,6 +47,7 @@ def process_message_stream(
             limit=limit,
             recall_limit=recall_limit,
             llm_model=llm_model,
+            history=history or [],
         )
         yield {"type": "done", **result}
 

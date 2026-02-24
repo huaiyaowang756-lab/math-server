@@ -1,14 +1,66 @@
 """
 高中数学试题生成技能：根据用户描述生成对应的高中数学题目。
-直接输出纯文本，不按题目协议结构化。
+输出纯文本（【题干】【答案】【解析】），并解析为结构化题目供多选下载试卷。
 """
 
-from typing import Any, Dict, Iterator
+import re
+from typing import Any, Dict, Iterator, List
 
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from .base import BaseSkill
 from ...config_loader import get_doubao_config
+
+
+def _text_to_blocks(text: str) -> List[Dict[str, Any]]:
+    """将含 $$latex$$ 的文本拆成 text/latex 块，与 to_dict 中 ContentBlock 一致。"""
+    if not (text or text.strip()):
+        return []
+    blocks = []
+    # 按 $$...$$ 分割，奇数段为 latex
+    parts = re.split(r"\$\$(.*?)\$\$", text.strip(), flags=re.DOTALL)
+    for i, part in enumerate(parts):
+        part = part.strip()
+        if not part:
+            continue
+        if i % 2 == 1:
+            blocks.append({"type": "latex", "content": part})
+        else:
+            blocks.append({"type": "text", "content": part})
+    if not blocks:
+        blocks = [{"type": "text", "content": text.strip()}]
+    return blocks
+
+
+def _parse_generated_question(content: str) -> Dict[str, Any] | None:
+    """
+    从生成技能的输出解析出单道题目的结构化 dict（与 to_dict 格式兼容，便于导出试卷）。
+    格式：【题干】...【答案】...【解析】...，公式用 $$...$$。
+    """
+    if not (content or content.strip()):
+        return None
+    text = content.strip()
+    body, answer, analysis = "", "", ""
+    # 【题干】...【答案】...【解析】...
+    m_body = re.search(r"【题干】\s*(.*?)(?=【答案】|【解析】|$)", text, re.DOTALL)
+    if m_body:
+        body = m_body.group(1).strip()
+    m_ans = re.search(r"【答案】\s*(.*?)(?=【解析】|$)", text, re.DOTALL)
+    if m_ans:
+        answer = m_ans.group(1).strip()
+    m_ana = re.search(r"【解析】\s*(.*?)$", text, re.DOTALL)
+    if m_ana:
+        analysis = m_ana.group(1).strip()
+    if not body and not answer:
+        return None
+    return {
+        "questionType": "solution",
+        "questionBody": _text_to_blocks(body) if body else [{"type": "text", "content": ""}],
+        "answer": _text_to_blocks(answer) if answer else [],
+        "analysis": _text_to_blocks(analysis) if analysis else [],
+        "detailedSolution": [],
+        "assetBaseUrl": "",
+    }
 
 
 GENERATE_SYSTEM = """你是一名高中数学命题专家。根据用户描述，直接生成一道符合要求的高中数学题目。
@@ -61,9 +113,14 @@ class QuestionGenerateSkill(BaseSkill):
         except Exception as e:
             content = f"题目生成失败：{str(e)}"
 
+        questions = []
+        parsed = _parse_generated_question(content)
+        if parsed:
+            questions = [parsed]
+
         return {
             "content": content,
-            "questions": [],
+            "questions": questions,
             "intent": self.intent,
             "skill_used": self.name,
         }
@@ -93,10 +150,15 @@ class QuestionGenerateSkill(BaseSkill):
         except Exception as e:
             content = f"题目生成失败：{str(e)}"
 
+        questions = []
+        parsed = _parse_generated_question(content)
+        if parsed:
+            questions = [parsed]
+
         yield {
             "type": "done",
             "content": content,
-            "questions": [],
+            "questions": questions,
             "intent": self.intent,
             "skill_used": self.name,
         }
