@@ -1,6 +1,7 @@
 from django.urls import path
 
-from . import views, views_knowledge, views_documents, views_tags
+from . import views, views_knowledge, views_documents, views_tags, views_question_types
+from . import views_recommend, views_ops, views_llm
 
 urlpatterns = [
     path("formula/recognize/", views.recognize_formula, name="recognize_formula"),
@@ -24,6 +25,7 @@ urlpatterns = [
     path("upload/tasks/", views.list_upload_tasks, name="list_upload_tasks"),
     path("upload/tasks/<str:task_id>/", views.get_or_delete_upload_task, name="upload_task_detail"),
     path("questions/save/", views.save_questions, name="save_questions"),
+    path("questions/recommend/", views_recommend.recommend, name="questions_recommend"),
     path("questions/", views.list_questions, name="list_questions"),
     path("questions/export/", views.export_questions, name="export_questions"),
     path("questions/batch/", views.delete_batch, name="delete_batch"),
@@ -40,4 +42,23 @@ urlpatterns = [
     path("knowledge/nodes/<str:node_id>/", views_knowledge.get_node, name="knowledge_get_node"),
     path("knowledge/nodes/<str:node_id>/update/", views_knowledge.update_node, name="knowledge_update_node"),
     path("knowledge/nodes/<str:node_id>/delete/", views_knowledge.delete_node, name="knowledge_delete_node"),
+    # 题型管理（题型节点树 + 绑定题目）
+    path("question-types/tree/", views_question_types.question_type_tree, name="question_type_tree"),
+    path("question-types/nodes/flat/", views_question_types.list_all_flat, name="question_type_nodes_flat"),
+    path("question-types/nodes/sort/", views_question_types.batch_sort_nodes, name="question_type_sort_nodes"),
+    path("question-types/nodes/create/", views_question_types.create_node, name="question_type_create_node"),
+    path("question-types/nodes/", views_question_types.list_nodes, name="question_type_list_nodes"),
+    path("question-types/nodes/<str:node_id>/", views_question_types.get_node, name="question_type_get_node"),
+    path("question-types/nodes/<str:node_id>/update/", views_question_types.update_node, name="question_type_update_node"),
+    path("question-types/nodes/<str:node_id>/delete/", views_question_types.delete_node, name="question_type_delete_node"),
+    path("question-types/nodes/<str:node_id>/bind-questions/", views_question_types.bind_questions, name="question_type_bind_questions"),
+    path("question-types/nodes/<str:node_id>/bound-ids/", views_question_types.bound_question_ids, name="question_type_bound_ids"),
+    # 运维
+    path("ops/build-vectors/", views_ops.build_vectors, name="ops_build_vectors"),
+    # 大模型管理
+    path("llm-models/", views_llm.list_llm_models, name="llm_models_list"),
+    path("llm-models/create/", views_llm.create_llm_model, name="llm_models_create"),
+    path("llm-models/<str:model_id>/", views_llm.get_llm_model, name="llm_models_get"),
+    path("llm-models/<str:model_id>/update/", views_llm.update_llm_model, name="llm_models_update"),
+    path("llm-models/<str:model_id>/delete/", views_llm.delete_llm_model, name="llm_models_delete"),
 ]

@@ -14,10 +14,11 @@ from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from .models import Question, UploadTask, Document, KnowledgePoint
+from .models import Question, UploadTask, Document, KnowledgePoint, QuestionTypeNode
 from .services.latex_converter import recognize_formula_image
 from .services.async_task import start_parse_task
 from .services.tos_upload import upload_document_to_tos
+from .services.vector_store.recommend import upsert_question_vector, delete_question_vector
 
 
 def _build_kp_map(questions):
@@ -31,6 +32,19 @@ def _build_kp_map(questions):
     for kp in KnowledgePoint.objects.filter(id__in=list(all_ids)):
         kp_map[str(kp.id)] = kp.name
     return kp_map
+
+
+def _build_qt_map(questions):
+    """从题目列表中收集所有 question_type_ids，批量查询并返回 {id: name} 映射。"""
+    all_ids = set()
+    for q in questions:
+        all_ids.update(q.question_type_ids or [])
+    if not all_ids:
+        return {}
+    qt_map = {}
+    for qt in QuestionTypeNode.objects.filter(id__in=list(all_ids)):
+        qt_map[str(qt.id)] = qt.name
+    return qt_map
 
 # 中文/英文等直接输出为原文，不转成 \uXXXX
 JSON_OPTIONS = {"ensure_ascii": False}
@@ -324,6 +338,7 @@ def save_questions(request):
         )
         q.save()
         saved_ids.append(str(q.id))
+        upsert_question_vector(q)
 
     return JsonResponse({
         "success": True,
@@ -347,10 +362,13 @@ def list_questions(request):
     category = request.GET.get("category", "").strip()
     region = request.GET.get("region", "").strip()
     scenario = request.GET.get("scenario", "").strip()
+    question_type_tag = request.GET.get("question_type_tag", "").strip()  # 题型节点 ID
 
     qs = Question.objects
     if question_type:
         qs = qs.filter(question_type=question_type)
+    if question_type_tag:
+        qs = qs.filter(question_type_ids=question_type_tag)
     if status and status in ("pending_verification", "online"):
         qs = qs.filter(status=status)
     if difficulty:
@@ -366,9 +384,10 @@ def list_questions(request):
     offset = (page - 1) * page_size
     questions = list(qs.skip(offset).limit(page_size))
     kp_map = _build_kp_map(questions)
+    qt_map = _build_qt_map(questions)
 
     return JsonResponse({
-        "questions": [q.to_dict(kp_map=kp_map) for q in questions],
+        "questions": [q.to_dict(kp_map=kp_map, qt_map=qt_map) for q in questions],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -385,7 +404,8 @@ def get_question(request, question_id):
     try:
         q = Question.objects.get(id=question_id)
         kp_map = _build_kp_map([q])
-        return JsonResponse({"question": q.to_dict(kp_map=kp_map)}, json_dumps_params=JSON_OPTIONS)
+        qt_map = _build_qt_map([q])
+        return JsonResponse({"question": q.to_dict(kp_map=kp_map, qt_map=qt_map)}, json_dumps_params=JSON_OPTIONS)
     except Question.DoesNotExist:
         return JsonResponse({"error": "题目不存在"}, status=404, json_dumps_params=JSON_OPTIONS)
 
@@ -458,10 +478,15 @@ def update_question(request, question_id):
             ]
         else:
             q.features = []
+    if "questionTypeIds" in data:
+        v = data["questionTypeIds"]
+        q.question_type_ids = [str(t).strip() for t in v if t] if isinstance(v, list) else []
 
     q.save()
+    upsert_question_vector(q)
     kp_map = _build_kp_map([q])
-    return JsonResponse({"success": True, "question": q.to_dict(kp_map=kp_map)}, json_dumps_params=JSON_OPTIONS)
+    qt_map = _build_qt_map([q])
+    return JsonResponse({"success": True, "question": q.to_dict(kp_map=kp_map, qt_map=qt_map)}, json_dumps_params=JSON_OPTIONS)
 
 
 @csrf_exempt
@@ -473,7 +498,9 @@ def delete_question(request, question_id):
     """
     try:
         q = Question.objects.get(id=question_id)
+        qid = str(q.id)
         q.delete()
+        delete_question_vector(qid)
         return JsonResponse({"success": True}, json_dumps_params=JSON_OPTIONS)
     except Question.DoesNotExist:
         return JsonResponse({"error": "题目不存在"}, status=404, json_dumps_params=JSON_OPTIONS)

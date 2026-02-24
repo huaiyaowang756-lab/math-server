@@ -68,7 +68,7 @@ class Question(me.Document):
         "collection": "questions",
         "ordering": ["-created_at"],
         "indexes": ["question_type", "source_file", "created_at",
-                     "difficulty", "categories", "regions", "scenario"],
+                     "difficulty", "categories", "regions", "scenario", "question_type_ids"],
     }
 
     index = me.IntField(required=True)
@@ -88,6 +88,7 @@ class Question(me.Document):
     knowledge_points = me.ListField(me.StringField(), default=list)  # 知识点
     description = me.StringField(default="")             # 题目描述
     features = me.ListField(me.ListField(me.StringField()), default=list)  # 特征 [[title, desc], ...]
+    question_type_ids = me.ListField(me.StringField(), default=list)  # 题型节点 ID 列表（题目属于哪些题型）
 
     source_file = me.StringField(default="")
     session_id = me.StringField(default="")
@@ -109,16 +110,23 @@ class Question(me.Document):
         self.updated_at = datetime.datetime.utcnow()
         return super().save(*args, **kwargs)
 
-    def to_dict(self, kp_map=None):
+    def to_dict(self, kp_map=None, qt_map=None):
         """
         序列化为字典。
         kp_map: 可选的 {id: name} 映射，用于将 knowledge_points ID 解析为名称。
+        qt_map: 可选的 {id: name} 映射，用于将 question_type_ids 解析为名称。
         """
         kp_ids = self.knowledge_points or []
         kp_details = []
         for kp_id in kp_ids:
             name = kp_map.get(kp_id, kp_id) if kp_map else kp_id
             kp_details.append({"id": kp_id, "name": name})
+
+        qt_ids = self.question_type_ids or []
+        qt_details = []
+        for qt_id in qt_ids:
+            name = qt_map.get(qt_id, qt_id) if qt_map else qt_id
+            qt_details.append({"id": qt_id, "name": name})
 
         d = {
             "id": str(self.id),
@@ -134,6 +142,8 @@ class Question(me.Document):
             "knowledgePointDetails": kp_details,
             "description": self.description or "",
             "features": self.features or [],
+            "questionTypeIds": qt_ids,
+            "questionTypeDetails": qt_details,
             "sourceFile": self.source_file,
             "sessionId": self.session_id,
             "assetBaseUrl": self.asset_base_url,
@@ -189,6 +199,7 @@ class Question(me.Document):
             knowledge_points=data.get("knowledgePoints") or presets.get("knowledge_points", []),
             description=data.get("description", ""),
             features=data.get("features", []),
+            question_type_ids=data.get("questionTypeIds", []),
             source_file=source_file,
             session_id=session_id,
             asset_base_url=asset_base_url,
@@ -313,6 +324,39 @@ class Document(me.Document):
         }
 
 
+class QuestionTypeNode(me.Document):
+    """
+    题型节点（树结构）。
+    任意节点都可拥有子节点，支持无限层级。
+    题目侧通过 question_type_ids 存储绑定的题型节点 ID。
+    """
+    meta = {
+        "collection": "question_type_nodes",
+        "ordering": ["order", "created_at"],
+        "indexes": ["parent_id"],
+    }
+    parent_id = me.StringField(default="")
+    name = me.StringField(required=True, max_length=200)
+    order = me.IntField(default=0)
+
+    created_at = me.DateTimeField(default=datetime.datetime.utcnow)
+    updated_at = me.DateTimeField(default=datetime.datetime.utcnow)
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.datetime.utcnow()
+        return super().save(*args, **kwargs)
+
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "parentId": self.parent_id or None,
+            "name": self.name,
+            "order": self.order,
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class KnowledgePoint(me.Document):
     """
     统一知识节点（替代原 KnowledgeCategory + KnowledgeNode）。
@@ -340,6 +384,39 @@ class KnowledgePoint(me.Document):
             "parentId": self.parent_id or None,
             "name": self.name,
             "order": self.order,
+            "createdAt": self.created_at.isoformat() if self.created_at else None,
+            "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class LLMModel(me.Document):
+    """
+    大模型配置：用于推荐精筛时可选不同模型。
+    name: 切换列表中显示的名称
+    model: 火山引擎 Ark 的模型 ID（如 doubao-seed-2-0-lite-260215）
+    """
+    meta = {
+        "collection": "llm_models",
+        "ordering": ["order", "created_at"],
+    }
+
+    name = me.StringField(required=True, max_length=100)
+    model = me.StringField(required=True, max_length=200)
+    order = me.IntField(default=0)
+
+    created_at = me.DateTimeField(default=datetime.datetime.utcnow)
+    updated_at = me.DateTimeField(default=datetime.datetime.utcnow)
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.datetime.utcnow()
+        return super().save(*args, **kwargs)
+
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "name": self.name or "",
+            "model": self.model or "",
+            "order": self.order or 0,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
         }

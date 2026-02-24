@@ -22,3 +22,22 @@ tos:
   # 公开读域名（用于拼接最终 URL，若不填则使用 endpoint_url + bucket）
   # 例如：https://your-bucket.tos.volces.com 或自定义 CDN 域名
   public_base_url: ""
+
+# 豆包大模型（题目推荐精筛用）
+doubao:
+  DOUBAO_API_KEY: "your-ark-api-key"
+  # 用量查询（可选）：用于大模型管理表格显示调用量/剩余额度
+  # VOLC_ACCESS_KEY: "your-ak"
+  # VOLC_SECRET_KEY: "your-sk"
+  # 若不配置，可使用 tos 的 access_key_id / secret_access_key
+  LLM_MODEL: "doubao-1.5-pro-32k-250115"
+  # DISABLE_PROXY: true   # 代理导致连接失败时设为 true，强制直连豆包 API；生产无代理可省略
+
+# 豆包向量嵌入（题目推荐向量召回用）
+doubao_embedding:
+  DOUBAO_EMBEDDING_API_KEY: "your-embedding-api-key"
+  DOUBAO_EMBEDDING_MODEL: "doubao-embedding-vision-251215"
+  # EMBEDDING_DIM: 2048   # doubao-embedding-vision 输出 2048 维，需与 Qdrant 一致
+  # DISABLE_PROXY: true   # 代理导致连接失败时设为 true，强制直连豆包 API；生产无代理可省略
+  # BATCH_SIZE: 5         # 每批 embedding 数量，默认 5，遇 429 可减小
+  # BATCH_DELAY: 1.0      # 批间延迟（秒），默认 1，遇 429 可增大

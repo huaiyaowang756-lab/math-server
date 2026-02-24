@@ -4,3 +4,4 @@ __pycache__/
 .env
 config/tos.yaml
 db.sqlite3
+qdrant_local_data/
