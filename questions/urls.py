@@ -6,6 +6,7 @@ from . import views_recommend, views_ops, views_llm, views_chat, views_auth
 urlpatterns = [
     path("formula/recognize/", views.recognize_formula, name="recognize_formula"),
     path("formula/recognize-url/", views.recognize_formula_url, name="recognize_formula_url"),
+    path("formula/fix-latex/", views.fix_formula_latex, name="fix_formula_latex"),
     # 标签管理（难度、分类、地区、场景）
     path("tags/", views_tags.list_tags, name="list_tags"),
     path("tags/create/", views_tags.create_tag, name="create_tag"),

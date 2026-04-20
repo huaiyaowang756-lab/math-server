@@ -46,10 +46,28 @@ def _get_rels(zip_f: ZipFile) -> dict:
 
 
 def _extract_text_from_run(run_el):
+    """从 run 中提取纯文本（不含制表符等格式）。"""
     texts = run_el.findall(
         ".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
     )
     return "".join((t.text or "") for t in texts)
+
+
+def _extract_text_and_tabs_from_run(run_el):
+    """
+    按文档顺序从 run 中提取文本，将 w:tab 转为 \\t，便于保留选项间由制表符实现的间隔。
+    制表符不仅出现在表格中，题干里不换行选项（A/B/C/D）也常用段落内制表位实现间隔，
+    OOXML 中为 <w:tab/>。解析结果中的 \\t 需在导出与前端渲染时还原为可见间隔。
+    """
+    w_ns = NS["w"]
+    parts = []
+    for child in run_el:
+        tag = child.tag if isinstance(child.tag, str) else (child.tag or "")
+        if tag == f"{{{w_ns}}}t":
+            parts.append(child.text or "")
+        elif tag == f"{{{w_ns}}}tab":
+            parts.append("\t")
+    return "".join(parts)
 
 
 def _get_embed_id_from_run(run_el):
@@ -103,7 +121,7 @@ def _iter_body_children(body_el):
 
 
 def _paragraph_to_blocks(p_el, rels, media_index_map, next_asset_index):
-    from .omml_converter import omml_to_latex
+    from .omml_bridge import omml_element_to_latex
 
     blocks = []
     w_ns = NS["w"]
@@ -111,7 +129,7 @@ def _paragraph_to_blocks(p_el, rels, media_index_map, next_asset_index):
 
     def _handle_run(run):
         nonlocal next_asset_index
-        text = _extract_text_from_run(run)
+        text = _extract_text_and_tabs_from_run(run)
         embed_id = _get_embed_id_from_run(run)
         if text:
             blocks.append({"type": "text", "content": text})
@@ -139,8 +157,8 @@ def _paragraph_to_blocks(p_el, rels, media_index_map, next_asset_index):
             # 普通文本 / 图片 run
             _handle_run(child)
         elif tag in (f"{{{m_ns}}}oMath", f"{{{m_ns}}}oMathPara"):
-            # OMML 公式 → 直接转为 LaTeX，无需 OCR
-            latex = omml_to_latex(child)
+            # OMML 公式 → LaTeX（优先 omml2latex，见 omml_bridge）
+            latex = omml_element_to_latex(child)
             if latex:
                 blocks.append({"type": "latex", "content": latex})
         elif tag == f"{{{w_ns}}}hyperlink":
@@ -151,18 +169,29 @@ def _paragraph_to_blocks(p_el, rels, media_index_map, next_asset_index):
     return blocks, next_asset_index
 
 
+def _cell_text(cell_el):
+    w_ns = NS["w"]
+    parts = []
+    for run in cell_el.findall(f".//{{{w_ns}}}r"):
+        parts.append(_extract_text_and_tabs_from_run(run))
+    return "".join(parts).strip()
+
+
 def _table_to_blocks(tbl_el, next_asset_index):
-    texts = []
-    for cell in tbl_el.iter():
-        tag = cell.tag if isinstance(cell.tag, str) else (cell.tag or "")
-        if "}tc" in tag:
-            for t in cell.findall(
-                ".//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
-            ):
-                if t.text:
-                    texts.append(t.text)
-    if texts:
-        return [{"type": "text", "content": " ".join(texts)}], next_asset_index
+    """表格按行→单元格顺序提取，同行多单元格用 \\t 连接，便于与段落制表符选项格式一致。"""
+    w_ns = NS["w"]
+    row_texts = []
+    for row in tbl_el:
+        if (row.tag if isinstance(row.tag, str) else "").endswith("}tr"):
+            cell_texts = []
+            for tc in row:
+                if (tc.tag if isinstance(tc.tag, str) else "").endswith("}tc"):
+                    cell_texts.append(_cell_text(tc))
+            if cell_texts:
+                row_texts.append("\t".join(c for c in cell_texts if c))
+    if row_texts:
+        content = "\n".join(row_texts)
+        return [{"type": "text", "content": content}], next_asset_index
     return [], next_asset_index
 
 

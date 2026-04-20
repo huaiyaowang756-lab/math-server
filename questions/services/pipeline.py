@@ -13,6 +13,7 @@ from pathlib import Path
 from django.conf import settings
 
 from .docx_parser import parse_docx
+from .omml_bridge import sanitize_latex_blocks_in_questions
 from .image_converter import convert_wmf_to_png, replace_wmf_urls
 from .latex_converter import convert_to_latex
 from .tos_upload import upload_content_image, is_content_image_ext
@@ -128,6 +129,9 @@ def process_docx(
                             b["height"] = h_wmf
                     else:
                         tos_stats["failed"] += 1
+
+    # OMML / OCR 产生的 LaTeX 统一再跑一遍 KaTeX 友好修正（如 \right \right\} → \right| \right\}）
+    sanitize_latex_blocks_in_questions(questions)
 
     # ========== 阶段三：返回结果 ==========
     asset_base_url = f"{settings.MEDIA_URL}uploads/{session_id}/"

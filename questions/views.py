@@ -16,9 +16,11 @@ from django.views.decorators.http import require_http_methods
 
 from .models import Question, UploadTask, Document, KnowledgePoint, QuestionTypeNode
 from .services.latex_converter import recognize_formula_image
+from .services.llm_refine import fix_latex_with_llm
 from .services.async_task import start_parse_task
 from .services.tos_upload import upload_document_to_tos
 from .services.vector_store.recommend import upsert_question_vector, delete_question_vector
+from .services.omml_bridge import sanitize_latex_for_katex, sanitize_latex_block_list, sanitize_latex_blocks_in_questions
 
 
 def _build_kp_map(questions):
@@ -89,6 +91,7 @@ def recognize_formula(request):
                 status=422,
                 json_dumps_params=JSON_OPTIONS,
             )
+        latex = sanitize_latex_for_katex(latex)
         return JsonResponse({"latex": latex}, json_dumps_params=JSON_OPTIONS)
     except Exception as e:
         return JsonResponse(
@@ -162,6 +165,7 @@ def recognize_formula_url(request):
                 status=422,
                 json_dumps_params=JSON_OPTIONS,
             )
+        latex = sanitize_latex_for_katex(latex)
         return JsonResponse({"latex": latex}, json_dumps_params=JSON_OPTIONS)
 
     except urllib.error.URLError as e:
@@ -182,6 +186,44 @@ def recognize_formula_url(request):
                 tmp_path.unlink(missing_ok=True)
         except Exception:
             pass
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def fix_formula_latex(request):
+    """
+    调用豆包大模型修复 LaTeX。
+    POST /api/formula/fix-latex/
+    - JSON body: { "latex": "...", "context"?: "...", "llm_model"?: "..." }
+    - 返回 { "latex": "..." } 或 { "error": "..." }
+    """
+    data = _json_body(request)
+    if not data or not str(data.get("latex") or "").strip():
+        return JsonResponse(
+            {"error": "请提供 latex"},
+            status=400,
+            json_dumps_params=JSON_OPTIONS,
+        )
+
+    latex = str(data.get("latex") or "").strip()
+    context = str(data.get("context") or "").strip()
+    llm_model = (data.get("llm_model") or "").strip() or None
+    try:
+        fixed = fix_latex_with_llm(latex=latex, context=context, llm_model=llm_model)
+        fixed = sanitize_latex_for_katex(fixed)
+        if not fixed:
+            return JsonResponse(
+                {"error": "AI 修复结果为空"},
+                status=422,
+                json_dumps_params=JSON_OPTIONS,
+            )
+        return JsonResponse({"latex": fixed}, json_dumps_params=JSON_OPTIONS)
+    except Exception as e:
+        return JsonResponse(
+            {"error": f"AI 修复失败: {str(e)}"},
+            status=500,
+            json_dumps_params=JSON_OPTIONS,
+        )
 
 
 @csrf_exempt
@@ -325,6 +367,8 @@ def save_questions(request):
     # 预设字段：来自上传时的预设或显式传入
     presets = data.get("presets") or {}
 
+    sanitize_latex_blocks_in_questions(questions_data)
+
     saved_ids = []
     for q_data in questions_data:
         q = Question.from_parsed(
@@ -440,13 +484,21 @@ def update_question(request, question_id):
         return blocks
 
     if "questionBody" in data:
-        q.question_body = _make_blocks(data["questionBody"])
+        blocks = _make_blocks(data["questionBody"])
+        sanitize_latex_block_list(blocks)
+        q.question_body = blocks
     if "answer" in data:
-        q.answer = _make_blocks(data["answer"])
+        blocks = _make_blocks(data["answer"])
+        sanitize_latex_block_list(blocks)
+        q.answer = blocks
     if "analysis" in data:
-        q.analysis = _make_blocks(data["analysis"])
+        blocks = _make_blocks(data["analysis"])
+        sanitize_latex_block_list(blocks)
+        q.analysis = blocks
     if "detailedSolution" in data:
-        q.detailed_solution = _make_blocks(data["detailedSolution"])
+        blocks = _make_blocks(data["detailedSolution"])
+        sanitize_latex_block_list(blocks)
+        q.detailed_solution = blocks
     if "questionType" in data:
         q.question_type = data["questionType"]
     if "status" in data and data["status"] in ("pending_verification", "online"):

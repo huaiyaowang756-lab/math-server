@@ -393,10 +393,25 @@ def _add_inline_image(para, doc, image_stream, width):
     temp_para._element.getparent().remove(temp_para._element)
 
 
+def _add_run_with_tabs(para, line):
+    """
+    将一行文本写入段落，其中 \\t 写为 Word 制表符（<w:tab/>），
+    与解析时 docx_parser 将 <w:tab/> 转为 \\t 的逻辑对应，保证选项间隔样式导出一致。
+    """
+    parts = line.split("\t")
+    if not parts:
+        return
+    run = para.add_run(parts[0])
+    for part in parts[1:]:
+        run.add_tab()
+        run = para.add_run(part)
+
+
 def _add_blocks_to_paragraph(para, blocks, asset_base_url=""):
     """
     将内容块追加到给定段落中，严格按协议决定是否换行：
     - text 块中的 \\n → 换行（新段落）
+    - text 块中的 \\t → Word 制表符（选项间隔等）
     - text / latex / image 块按解析顺序依次追加，不额外插入间距（与源文档一致）
     返回涉及的段落列表（用于统一设置底色等）。
     """
@@ -416,7 +431,7 @@ def _add_blocks_to_paragraph(para, blocks, asset_base_url=""):
                     para = doc.add_paragraph()
                     paras.append(para)
                 if line:
-                    para.add_run(line)
+                    _add_run_with_tabs(para, line)
 
         elif btype == "latex":
             content = block.get("content", "")
