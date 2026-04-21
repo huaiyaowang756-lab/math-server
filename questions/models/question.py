@@ -38,6 +38,9 @@ class Question(me.Document):
     features = me.ListField(me.ListField(me.StringField()), default=list)  # 特征 [[title, desc], ...]
     question_type_ids = me.ListField(me.StringField(), default=list)  # 题型节点 ID 列表（题目属于哪些题型）
     stem_text_hash = me.StringField(default="")  # 仅基于题干 text 块计算的去重哈希
+    source_text = me.StringField(default="")  # 题目来源（从题干/标注中提取）
+    knowledge_text = me.StringField(default="")  # 题目考查知识点（原文）
+    difficulty_text = me.StringField(default="")  # 题目难度（原文）
 
     source_file = me.StringField(default="")
     session_id = me.StringField(default="")
@@ -96,6 +99,9 @@ class Question(me.Document):
             "questionTypeIds": qt_ids,
             "questionTypeDetails": qt_details,
             "sourceFile": self.source_file,
+            "sourceText": self.source_text or "",
+            "knowledgeText": self.knowledge_text or "",
+            "difficultyText": self.difficulty_text or "",
             "sessionId": self.session_id,
             "assetBaseUrl": self.asset_base_url,
             "sourceDocumentId": self.source_document_id or None,
@@ -151,6 +157,9 @@ class Question(me.Document):
             description=data.get("description", ""),
             features=data.get("features", []),
             question_type_ids=data.get("questionTypeIds", []),
+            source_text=(data.get("sourceText") or "").strip(),
+            knowledge_text=(data.get("knowledgeText") or "").strip(),
+            difficulty_text=(data.get("difficultyText") or "").strip(),
             source_file=source_file,
             session_id=session_id,
             asset_base_url=asset_base_url,

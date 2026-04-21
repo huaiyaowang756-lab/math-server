@@ -247,12 +247,69 @@ SECTION_TYPE_MAP = {
     "四、解答题": "solution",
 }
 
+SOURCE_KEYWORDS = ("年", "届", "中学", "学校", "联考", "模拟", "月考", "期中", "期末", "高考", "适应性", "试卷")
+
 
 def _append_with_break(target_list, blocks):
     """向目标列表追加内容，若已有内容则先插入换行。"""
     if target_list and blocks:
         target_list.append({"type": "text", "content": "\n"})
     target_list.extend(blocks)
+
+
+def _extract_label_text_from_blocks(blocks, label):
+    """
+    从 blocks 中提取类似【标签】xxx 的文本内容，返回 (extracted_text, remaining_blocks)。
+    """
+    extracted_parts = []
+    remaining = []
+    for b in (blocks or []):
+        if b.get("type") != "text":
+            remaining.append(b)
+            continue
+        content = b.get("content") or ""
+        if label not in content:
+            remaining.append(b)
+            continue
+        head, tail = content.split(label, 1)
+        if head.strip():
+            remaining.append({"type": "text", "content": head})
+        if tail.strip():
+            extracted_parts.append(tail.strip())
+    return " ".join(extracted_parts).strip(), remaining
+
+
+def _extract_source_from_body_start(body_blocks):
+    """
+    从题干开头提取来源，支持：
+    - 【来源】...
+    - 开头括号来源：(...)/（...）
+    """
+    if not body_blocks:
+        return "", body_blocks
+    source_from_label, body_after_label = _extract_label_text_from_blocks(body_blocks, "【来源】")
+    if source_from_label:
+        return source_from_label, body_after_label
+
+    blocks = list(body_blocks)
+    for i, b in enumerate(blocks):
+        if b.get("type") != "text":
+            continue
+        content = (b.get("content") or "").lstrip()
+        if not content:
+            continue
+        m = re.match(r"^[（(]([^）)]{4,120})[）)]", content)
+        if not m:
+            break
+        candidate = m.group(1).strip()
+        if not any(k in candidate for k in SOURCE_KEYWORDS):
+            break
+        rest = content[m.end():].lstrip()
+        blocks[i] = {**b, "content": rest}
+        if not rest:
+            blocks.pop(i)
+        return candidate, blocks
+    return "", body_blocks
 
 
 def _split_into_questions(paragraphs_blocks):
@@ -282,6 +339,9 @@ def _split_into_questions(paragraphs_blocks):
                 "answer": [],
                 "analysis": [],
                 "detailedSolution": [],
+                "sourceText": "",
+                "knowledgeText": "",
+                "difficultyText": "",
             }
             state = "body"
             if blocks:
@@ -295,6 +355,10 @@ def _split_into_questions(paragraphs_blocks):
                         new_blocks.append(b)
                 if new_blocks:
                     current["questionBody"].extend(new_blocks)
+                    source_text, body_blocks = _extract_source_from_body_start(current["questionBody"])
+                    if source_text:
+                        current["sourceText"] = source_text
+                        current["questionBody"] = body_blocks
             continue
 
         if current is None:
@@ -315,6 +379,45 @@ def _split_into_questions(paragraphs_blocks):
                 else:
                     new_blocks.append(b)
             _append_with_break(current["answer"], new_blocks)
+            continue
+
+        if "【来源】" in stripped:
+            source_text, remaining = _extract_label_text_from_blocks(blocks, "【来源】")
+            if source_text:
+                current["sourceText"] = source_text
+            if remaining:
+                _append_with_break(current["questionBody"], remaining)
+            continue
+
+        if "【知识点】" in stripped:
+            kp_text, remaining = _extract_label_text_from_blocks(blocks, "【知识点】")
+            if kp_text:
+                current["knowledgeText"] = kp_text
+            if remaining:
+                # 保留非标签内容到当前状态
+                if state == "answer":
+                    _append_with_break(current["answer"], remaining)
+                elif state == "analysis":
+                    _append_with_break(current["analysis"], remaining)
+                elif state == "detailedSolution":
+                    _append_with_break(current["detailedSolution"], remaining)
+                else:
+                    _append_with_break(current["questionBody"], remaining)
+            continue
+
+        if "【难度】" in stripped:
+            diff_text, remaining = _extract_label_text_from_blocks(blocks, "【难度】")
+            if diff_text:
+                current["difficultyText"] = diff_text
+            if remaining:
+                if state == "answer":
+                    _append_with_break(current["answer"], remaining)
+                elif state == "analysis":
+                    _append_with_break(current["analysis"], remaining)
+                elif state == "detailedSolution":
+                    _append_with_break(current["detailedSolution"], remaining)
+                else:
+                    _append_with_break(current["questionBody"], remaining)
             continue
 
         if stripped.startswith("【分析】"):
@@ -449,6 +552,11 @@ def parse_docx(docx_path: Path, assets_dir: Path) -> list[dict]:
             if content != b["content"]:
                 body[i] = {**b, "content": content}
             break
+        # 兜底：再次从题干开头提取来源（避免来源在后续拼接时才出现）
+        source_text, cleaned_body = _extract_source_from_body_start(body)
+        if source_text:
+            q["sourceText"] = q.get("sourceText") or source_text
+            q["questionBody"] = cleaned_body
 
     # 清理空数组
     for q in questions:

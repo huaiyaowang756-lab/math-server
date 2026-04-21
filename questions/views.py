@@ -635,6 +635,12 @@ def update_question(request, question_id):
     if "questionTypeIds" in data:
         v = data["questionTypeIds"]
         q.question_type_ids = [str(t).strip() for t in v if t] if isinstance(v, list) else []
+    if "sourceText" in data:
+        q.source_text = str(data["sourceText"] or "").strip()
+    if "knowledgeText" in data:
+        q.knowledge_text = str(data["knowledgeText"] or "").strip()
+    if "difficultyText" in data:
+        q.difficulty_text = str(data["difficultyText"] or "").strip()
 
     q.save()
     upsert_question_vector(q)
