@@ -504,6 +504,7 @@ def list_questions(request):
     qs = Question.objects
     if question_type:
         qs = qs.filter(question_type=question_type)
+    ids = []
     if ids_raw:
         ids = [i.strip() for i in ids_raw.split(",") if i.strip()]
         if ids:
@@ -524,6 +525,10 @@ def list_questions(request):
     total = qs.count()
     offset = (page - 1) * page_size
     questions = list(qs.skip(offset).limit(page_size))
+    # 若按 ids 指定查询，返回顺序应与传入 ids 顺序一致（用于试卷题目顺序回显）
+    if ids:
+        id_pos = {qid: idx for idx, qid in enumerate(ids)}
+        questions.sort(key=lambda q: id_pos.get(str(q.id), 10 ** 9))
     kp_map = _build_kp_map(questions)
     qt_map = _build_qt_map(questions)
 

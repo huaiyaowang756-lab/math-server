@@ -121,6 +121,7 @@ def upload_document(request):
         doc_type=doc_type,
         tags=tags,
         video_url=video_url,
+        question_status="unparsed",
     )
     doc.save()
     return JsonResponse({"success": True, "document": doc.to_dict()}, json_dumps_params=JSON_OPTIONS)
@@ -135,12 +136,15 @@ def list_documents(request):
     page = max(1, int(request.GET.get("page", 1)))
     page_size = min(100, max(1, int(request.GET.get("page_size", 20))))
     doc_type = request.GET.get("doc_type", "").strip()
+    question_status = request.GET.get("question_status", "").strip()
     tag = request.GET.get("tag", "").strip()
     parent_id = request.GET.get("parent_id", "").strip()
 
     qs = Document.objects.filter(parent_id=parent_id)
     if doc_type and doc_type in ("exam", "topic", "other"):
         qs = qs.filter(doc_type=doc_type, is_folder=False)
+    if question_status and question_status in ("unparsed", "unimported", "imported"):
+        qs = qs.filter(question_status=question_status, is_folder=False)
     if tag:
         qs = qs.filter(tags=tag)
     docs_all = list(qs)
@@ -477,6 +481,8 @@ def parse_document(request, doc_id):
         preset_knowledge_points=[str(t).strip() for t in presets.get("knowledgePoints", []) if t] if isinstance(presets.get("knowledgePoints"), list) else [],
     )
     task.save()
+    doc.question_status = "unimported"
+    doc.save()
 
     start_parse_task(str(task.id))
 
@@ -536,6 +542,7 @@ def finalize_document_questions(request, doc_id):
 
     qids = [str(qid).strip() for qid in data.get("questionIds", []) if str(qid).strip()]
     doc.question_ids = qids
+    doc.question_status = "imported" if qids else "unimported"
     doc.save()
 
     task_id = str(data.get("taskId") or "").strip()
