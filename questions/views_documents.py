@@ -41,6 +41,7 @@ def _collect_descendant_ids(folder_id):
 
 
 def _copy_document_tree(source_doc: Document, target_parent_id: str):
+    sibling_count = Document.objects.filter(parent_id=target_parent_id).count()
     copied = Document(
         parent_id=target_parent_id,
         is_folder=bool(source_doc.is_folder),
@@ -50,6 +51,7 @@ def _copy_document_tree(source_doc: Document, target_parent_id: str):
         doc_type=source_doc.doc_type or "other",
         tags=source_doc.tags or [],
         video_url=source_doc.video_url or "",
+        order=sibling_count,
     )
     copied.save()
     if source_doc.is_folder:
@@ -122,6 +124,7 @@ def upload_document(request):
         tags=tags,
         video_url=video_url,
         question_status="unparsed",
+        order=Document.objects.filter(parent_id=parent_id).count(),
     )
     doc.save()
     return JsonResponse({"success": True, "document": doc.to_dict()}, json_dumps_params=JSON_OPTIONS)
@@ -148,7 +151,14 @@ def list_documents(request):
     if tag:
         qs = qs.filter(tags=tag)
     docs_all = list(qs)
-    docs_all.sort(key=lambda d: (0 if d.is_folder else 1, (d.filename or "").lower(), -d.created_at.timestamp()))
+    docs_all.sort(
+        key=lambda d: (
+            0 if d.is_folder else 1,
+            int(getattr(d, "order", 0) or 0),
+            (d.filename or "").lower(),
+            d.created_at.timestamp() if d.created_at else 0,
+        )
+    )
     total = len(docs_all)
     offset = (page - 1) * page_size
     docs = docs_all[offset: offset + page_size]
@@ -187,6 +197,7 @@ def create_folder(request):
         doc_type="other",
         tags=[],
         video_url="",
+        order=(int(data.get("order", 0)) if isinstance(data.get("order"), (int, float)) else Document.objects.filter(parent_id=parent_id).count()),
     )
     folder.save()
     return JsonResponse({"success": True, "folder": folder.to_dict()}, json_dumps_params=JSON_OPTIONS)

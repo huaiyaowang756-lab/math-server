@@ -15,7 +15,7 @@ class Document(me.Document):
     meta = {
         "collection": "documents",
         "ordering": ["-created_at"],
-        "indexes": ["doc_type", "tags", "created_at", "parent_id", "is_folder"],
+        "indexes": ["doc_type", "tags", "created_at", "parent_id", "is_folder", "order"],
     }
 
     parent_id = me.StringField(default="")  # 父文件夹 ID，空串表示根目录
@@ -34,6 +34,7 @@ class Document(me.Document):
         default="unparsed",
         choices=("unparsed", "unimported", "imported"),
     )  # 未解析 / 已解析未入库 / 已入库
+    order = me.IntField(default=0)  # 同级显示顺序（越小越靠前）
 
     created_at = me.DateTimeField(default=datetime.datetime.utcnow)
     updated_at = me.DateTimeField(default=datetime.datetime.utcnow)
@@ -55,6 +56,7 @@ class Document(me.Document):
             "videoUrl": self.video_url or "",
             "questionIds": self.question_ids or [],
             "questionStatus": self.question_status or "unparsed",
+            "order": int(self.order or 0),
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
         }
