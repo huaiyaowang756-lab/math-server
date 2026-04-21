@@ -308,8 +308,9 @@ def list_upload_tasks(request):
 @csrf_exempt
 def get_or_delete_upload_task(request, task_id):
     """
-    获取或删除单个任务。
+    获取、更新或删除单个任务。
     GET /api/upload/tasks/<task_id>/  — 获取详情
+    PUT /api/upload/tasks/<task_id>/  — 更新任务结果（用于修复后回写）
     DELETE /api/upload/tasks/<task_id>/  — 删除记录及关联文件
     """
     try:
@@ -338,6 +339,14 @@ def get_or_delete_upload_task(request, task_id):
                     pass
 
         return JsonResponse({"success": True}, json_dumps_params=JSON_OPTIONS)
+
+    if request.method == "PUT":
+        data = _json_body(request)
+        if not data or "result" not in data or not isinstance(data.get("result"), dict):
+            return JsonResponse({"error": "请提供有效 result"}, status=400, json_dumps_params=JSON_OPTIONS)
+        task.result = data.get("result") or {}
+        task.save()
+        return JsonResponse({"success": True, "task": task.to_dict()}, json_dumps_params=JSON_OPTIONS)
 
     return JsonResponse({"task": task.to_dict()}, json_dumps_params=JSON_OPTIONS)
 
