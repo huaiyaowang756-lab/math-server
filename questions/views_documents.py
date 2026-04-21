@@ -14,6 +14,7 @@ from django.conf import settings
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
+from mongoengine.queryset.visitor import Q
 
 from .models import Document, UploadTask
 from .services.async_task import start_parse_task
@@ -27,6 +28,11 @@ def _json_body(request):
         return json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+def _root_parent_query():
+    """兼容历史数据：根目录可能是空串、null 或字段缺失。"""
+    return Q(parent_id="") | Q(parent_id=None) | Q(parent_id__exists=False)
 
 
 def _collect_descendant_ids(folder_id):
@@ -143,7 +149,10 @@ def list_documents(request):
     tag = request.GET.get("tag", "").strip()
     parent_id = request.GET.get("parent_id", "").strip()
 
-    qs = Document.objects.filter(parent_id=parent_id)
+    if parent_id:
+        qs = Document.objects.filter(parent_id=parent_id)
+    else:
+        qs = Document.objects.filter(_root_parent_query())
     if doc_type and doc_type in ("exam", "topic", "other"):
         qs = qs.filter(doc_type=doc_type, is_folder=False)
     if question_status and question_status in ("unparsed", "unimported", "imported"):
@@ -251,6 +260,7 @@ def update_document(request, doc_id):
         new_parent_id = str(data["parentId"] or "").strip()
         if new_parent_id == str(doc.id):
             return JsonResponse({"error": "不能将父文件夹设为自身"}, status=400, json_dumps_params=JSON_OPTIONS)
+        old_parent_id = doc.parent_id or ""
         if new_parent_id:
             parent = Document.objects.filter(id=new_parent_id).first()
             if not parent or not parent.is_folder:
@@ -259,7 +269,11 @@ def update_document(request, doc_id):
                 descendants = set(_collect_descendant_ids(str(doc.id)))
                 if new_parent_id in descendants:
                     return JsonResponse({"error": "不能移动到子文件夹下"}, status=400, json_dumps_params=JSON_OPTIONS)
-        doc.parent_id = new_parent_id
+        doc.parent_id = new_parent_id or ""
+        # 仅在跨目录移动时，重排目标目录顺序：将当前项置顶，确保移动后可见
+        if new_parent_id != old_parent_id:
+            Document.objects.filter(parent_id=new_parent_id, id__ne=doc.id).update(inc__order=1)
+            doc.order = 0
 
     doc.save()
     return JsonResponse({"success": True, "document": doc.to_dict()}, json_dumps_params=JSON_OPTIONS)
