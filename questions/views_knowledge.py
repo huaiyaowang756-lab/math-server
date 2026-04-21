@@ -72,7 +72,7 @@ def list_nodes(request):
 def create_node(request):
     """
     POST /api/knowledge/nodes/create/
-    JSON body: { name, parentId?, order? }
+    JSON body: { name, parentId?, order?, node_id? }
     """
     data = _json_body(request)
     if not data or not (data.get("name") or "").strip():
@@ -94,6 +94,7 @@ def create_node(request):
     node = KnowledgePoint(
         parent_id=parent_id,
         name=data["name"].strip(),
+        node_id=(data.get("node_id") or "").strip(),
         order=data.get("order", 0) if isinstance(data.get("order"), (int, float)) else 0,
     )
     node.save()
@@ -131,7 +132,7 @@ def _get_descendant_ids(node_id):
 def update_node(request, node_id):
     """
     PUT /api/knowledge/nodes/<id>/update/
-    JSON body: { name?, parentId?, order? }
+    JSON body: { name?, parentId?, order?, node_id? }
     """
     data = _json_body(request)
     if not data:
@@ -162,6 +163,9 @@ def update_node(request, node_id):
 
     if "order" in data:
         node.order = int(data["order"]) if isinstance(data["order"], (int, float)) else 0
+
+    if "node_id" in data:
+        node.node_id = (data.get("node_id") or "").strip()
 
     if "parentId" in data:
         new_parent_id = (data["parentId"] or "").strip()

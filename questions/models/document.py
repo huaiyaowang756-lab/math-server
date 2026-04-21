@@ -15,10 +15,12 @@ class Document(me.Document):
     meta = {
         "collection": "documents",
         "ordering": ["-created_at"],
-        "indexes": ["doc_type", "tags", "created_at"],
+        "indexes": ["doc_type", "tags", "created_at", "parent_id", "is_folder"],
     }
 
-    url = me.StringField(required=True)  # TOS 文档地址
+    parent_id = me.StringField(default="")  # 父文件夹 ID，空串表示根目录
+    is_folder = me.BooleanField(default=False)  # 是否为文件夹
+    url = me.StringField(default="")  # TOS 文档地址；文件夹为空
     filename = me.StringField(default="")  # 原始文件名
     description = me.StringField(default="")  # 文档描述
     doc_type = me.StringField(
@@ -38,6 +40,8 @@ class Document(me.Document):
     def to_dict(self):
         return {
             "id": str(self.id),
+            "parentId": self.parent_id or "",
+            "isFolder": bool(self.is_folder),
             "url": self.url or "",
             "filename": self.filename or "",
             "description": self.description or "",

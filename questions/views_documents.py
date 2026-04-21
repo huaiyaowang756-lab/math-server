@@ -29,13 +29,43 @@ def _json_body(request):
         return None
 
 
+def _collect_descendant_ids(folder_id):
+    ids = []
+    children = Document.objects.filter(parent_id=str(folder_id))
+    for child in children:
+        cid = str(child.id)
+        ids.append(cid)
+        if child.is_folder:
+            ids.extend(_collect_descendant_ids(cid))
+    return ids
+
+
+def _copy_document_tree(source_doc: Document, target_parent_id: str):
+    copied = Document(
+        parent_id=target_parent_id,
+        is_folder=bool(source_doc.is_folder),
+        url=source_doc.url or "",
+        filename=source_doc.filename or "",
+        description=source_doc.description or "",
+        doc_type=source_doc.doc_type or "other",
+        tags=source_doc.tags or [],
+        video_url=source_doc.video_url or "",
+    )
+    copied.save()
+    if source_doc.is_folder:
+        children = list(Document.objects.filter(parent_id=str(source_doc.id)))
+        for child in children:
+            _copy_document_tree(child, str(copied.id))
+    return copied
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def upload_document(request):
     """
     上传文档到 TOS 并创建记录。
     POST /api/documents/upload/
-    - multipart/form-data: file (必填), description, doc_type, tags (JSON 数组), video_url
+    - multipart/form-data: file (必填), description, doc_type, tags (JSON 数组), video_url, parent_id
     """
     uploaded = request.FILES.get("file")
     if not uploaded:
@@ -76,8 +106,15 @@ def upload_document(request):
             pass
 
     video_url = request.POST.get("video_url", "").strip()
+    parent_id = request.POST.get("parent_id", "").strip()
+    if parent_id:
+        parent = Document.objects.filter(id=parent_id).first()
+        if not parent or not parent.is_folder:
+            return JsonResponse({"error": "父文件夹不存在"}, status=400, json_dumps_params=JSON_OPTIONS)
 
     doc = Document(
+        parent_id=parent_id,
+        is_folder=False,
         url=url,
         filename=uploaded.name,
         description=description,
@@ -93,22 +130,24 @@ def upload_document(request):
 @require_http_methods(["GET"])
 def list_documents(request):
     """
-    GET /api/documents/?page=1&page_size=20&doc_type=exam
+    GET /api/documents/?page=1&page_size=20&doc_type=exam&parent_id=
     """
     page = max(1, int(request.GET.get("page", 1)))
     page_size = min(100, max(1, int(request.GET.get("page_size", 20))))
     doc_type = request.GET.get("doc_type", "").strip()
     tag = request.GET.get("tag", "").strip()
+    parent_id = request.GET.get("parent_id", "").strip()
 
-    qs = Document.objects
+    qs = Document.objects.filter(parent_id=parent_id)
     if doc_type and doc_type in ("exam", "topic", "other"):
-        qs = qs.filter(doc_type=doc_type)
+        qs = qs.filter(doc_type=doc_type, is_folder=False)
     if tag:
         qs = qs.filter(tags=tag)
-
-    total = qs.count()
+    docs_all = list(qs)
+    docs_all.sort(key=lambda d: (0 if d.is_folder else 1, (d.filename or "").lower(), -d.created_at.timestamp()))
+    total = len(docs_all)
     offset = (page - 1) * page_size
-    docs = list(qs.order_by("-created_at").skip(offset).limit(page_size))
+    docs = docs_all[offset: offset + page_size]
     return JsonResponse(
         {
             "documents": [d.to_dict() for d in docs],
@@ -118,6 +157,35 @@ def list_documents(request):
         },
         json_dumps_params=JSON_OPTIONS,
     )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def create_folder(request):
+    """
+    POST /api/documents/folders/create/
+    JSON body: { name, parentId? }
+    """
+    data = _json_body(request)
+    if not data or not (data.get("name") or "").strip():
+        return JsonResponse({"error": "文件夹名称必填"}, status=400, json_dumps_params=JSON_OPTIONS)
+    parent_id = (data.get("parentId") or "").strip()
+    if parent_id:
+        parent = Document.objects.filter(id=parent_id).first()
+        if not parent or not parent.is_folder:
+            return JsonResponse({"error": "父文件夹不存在"}, status=400, json_dumps_params=JSON_OPTIONS)
+    folder = Document(
+        parent_id=parent_id,
+        is_folder=True,
+        filename=(data.get("name") or "").strip(),
+        url="",
+        description="",
+        doc_type="other",
+        tags=[],
+        video_url="",
+    )
+    folder.save()
+    return JsonResponse({"success": True, "folder": folder.to_dict()}, json_dumps_params=JSON_OPTIONS)
 
 
 @csrf_exempt
@@ -153,6 +221,24 @@ def update_document(request, doc_id):
         doc.tags = [str(t).strip() for t in tags] if isinstance(tags, list) else []
     if "videoUrl" in data:
         doc.video_url = str(data["videoUrl"] or "").strip()
+    if "filename" in data and doc.is_folder:
+        name = str(data["filename"] or "").strip()
+        if not name:
+            return JsonResponse({"error": "文件夹名称不能为空"}, status=400, json_dumps_params=JSON_OPTIONS)
+        doc.filename = name
+    if "parentId" in data:
+        new_parent_id = str(data["parentId"] or "").strip()
+        if new_parent_id == str(doc.id):
+            return JsonResponse({"error": "不能将父文件夹设为自身"}, status=400, json_dumps_params=JSON_OPTIONS)
+        if new_parent_id:
+            parent = Document.objects.filter(id=new_parent_id).first()
+            if not parent or not parent.is_folder:
+                return JsonResponse({"error": "父文件夹不存在"}, status=400, json_dumps_params=JSON_OPTIONS)
+            if doc.is_folder:
+                descendants = set(_collect_descendant_ids(str(doc.id)))
+                if new_parent_id in descendants:
+                    return JsonResponse({"error": "不能移动到子文件夹下"}, status=400, json_dumps_params=JSON_OPTIONS)
+        doc.parent_id = new_parent_id
 
     doc.save()
     return JsonResponse({"success": True, "document": doc.to_dict()}, json_dumps_params=JSON_OPTIONS)
@@ -163,6 +249,13 @@ def update_document(request, doc_id):
 def delete_document(request, doc_id):
     try:
         doc = Document.objects.get(id=doc_id)
+        if doc.is_folder:
+            descendants = _collect_descendant_ids(str(doc.id))
+            for cid in descendants:
+                try:
+                    Document.objects.get(id=cid).delete()
+                except Document.DoesNotExist:
+                    pass
         doc.delete()
         return JsonResponse({"success": True}, json_dumps_params=JSON_OPTIONS)
     except Document.DoesNotExist:
@@ -180,6 +273,8 @@ def download_document(request, doc_id):
         doc = Document.objects.get(id=doc_id)
     except Document.DoesNotExist:
         return JsonResponse({"error": "文档不存在"}, status=404, json_dumps_params=JSON_OPTIONS)
+    if doc.is_folder:
+        return JsonResponse({"error": "文件夹不支持下载"}, status=400, json_dumps_params=JSON_OPTIONS)
 
     filename = doc.filename or "document"
     if not Path(filename).suffix:
@@ -245,6 +340,8 @@ def preview_document(request, doc_id):
         doc = Document.objects.get(id=doc_id)
     except Document.DoesNotExist:
         return JsonResponse({"error": "文档不存在"}, status=404, json_dumps_params=JSON_OPTIONS)
+    if doc.is_folder:
+        return JsonResponse({"error": "文件夹不支持预览"}, status=400, json_dumps_params=JSON_OPTIONS)
 
     ext = Path(doc.filename or doc.url or "").suffix.lower()
     if ext in (".pdf",):
@@ -321,6 +418,8 @@ def parse_document(request, doc_id):
         doc = Document.objects.get(id=doc_id)
     except Document.DoesNotExist:
         return JsonResponse({"error": "文档不存在"}, status=404, json_dumps_params=JSON_OPTIONS)
+    if doc.is_folder:
+        return JsonResponse({"error": "文件夹不支持解析"}, status=400, json_dumps_params=JSON_OPTIONS)
 
     ext = Path(doc.filename or doc.url or "").suffix.lower()
     if ext not in (".doc", ".docx"):
@@ -380,3 +479,34 @@ def parse_document(request, doc_id):
         "status": task.status,
         "source_filename": task.source_filename,
     }, json_dumps_params=JSON_OPTIONS)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def copy_document(request, doc_id):
+    """
+    复制文件/文件夹到目标目录（文件夹递归复制）。
+    POST /api/documents/<id>/copy/
+    JSON body: { targetParentId?: "" }
+    """
+    data = _json_body(request) or {}
+    target_parent_id = str(data.get("targetParentId") or "").strip()
+    try:
+        source = Document.objects.get(id=doc_id)
+    except Document.DoesNotExist:
+        return JsonResponse({"error": "源文件不存在"}, status=404, json_dumps_params=JSON_OPTIONS)
+
+    if target_parent_id:
+        target = Document.objects.filter(id=target_parent_id).first()
+        if not target or not target.is_folder:
+            return JsonResponse({"error": "目标文件夹不存在"}, status=400, json_dumps_params=JSON_OPTIONS)
+        if source.is_folder:
+            descendants = set(_collect_descendant_ids(str(source.id)))
+            if target_parent_id == str(source.id) or target_parent_id in descendants:
+                return JsonResponse({"error": "不能复制到自身或子文件夹下"}, status=400, json_dumps_params=JSON_OPTIONS)
+
+    copied = _copy_document_tree(source, target_parent_id)
+    return JsonResponse(
+        {"success": True, "document": copied.to_dict()},
+        json_dumps_params=JSON_OPTIONS,
+    )

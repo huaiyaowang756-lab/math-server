@@ -19,6 +19,7 @@ class KnowledgePoint(me.Document):
     }
     parent_id = me.StringField(default="")  # 父节点 ID，空串表示顶级节点
     name = me.StringField(required=True, max_length=200)
+    node_id = me.StringField(default="")  # 外部知识树节点 ID（导入 JSON 的原始 id）
     order = me.IntField(default=0)
 
     created_at = me.DateTimeField(default=datetime.datetime.utcnow)
@@ -33,6 +34,7 @@ class KnowledgePoint(me.Document):
             "id": str(self.id),
             "parentId": self.parent_id or None,
             "name": self.name,
+            "node_id": self.node_id or None,
             "order": self.order,
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
