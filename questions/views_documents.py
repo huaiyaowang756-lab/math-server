@@ -221,11 +221,17 @@ def update_document(request, doc_id):
         doc.tags = [str(t).strip() for t in tags] if isinstance(tags, list) else []
     if "videoUrl" in data:
         doc.video_url = str(data["videoUrl"] or "").strip()
-    if "filename" in data and doc.is_folder:
+    if "filename" in data:
         name = str(data["filename"] or "").strip()
         if not name:
-            return JsonResponse({"error": "文件夹名称不能为空"}, status=400, json_dumps_params=JSON_OPTIONS)
-        doc.filename = name
+            return JsonResponse({"error": "名称不能为空"}, status=400, json_dumps_params=JSON_OPTIONS)
+        if doc.is_folder:
+            doc.filename = name
+        else:
+            # 试卷名称不允许修改后缀名：后缀固定为原文件后缀
+            old_ext = Path(doc.filename or "").suffix or Path(doc.url or "").suffix
+            base_name = Path(name).stem
+            doc.filename = f"{base_name}{old_ext}" if old_ext else base_name
     if "parentId" in data:
         new_parent_id = str(data["parentId"] or "").strip()
         if new_parent_id == str(doc.id):
