@@ -24,6 +24,7 @@ urlpatterns = [
     path("documents/<str:doc_id>/preview-pdf/", views_documents.preview_document, name="document_preview"),
     path("documents/<str:doc_id>/parse/", views_documents.parse_document, name="document_parse"),
     path("documents/<str:doc_id>/copy/", views_documents.copy_document, name="document_copy"),
+    path("documents/<str:doc_id>/finalize-questions/", views_documents.finalize_document_questions, name="document_finalize_questions"),
     path("upload/", views.upload_docx, name="upload_docx"),
     path("upload/tasks/", views.list_upload_tasks, name="list_upload_tasks"),
     path("upload/tasks/<str:task_id>/", views.get_or_delete_upload_task, name="upload_task_detail"),

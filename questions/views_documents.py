@@ -516,3 +516,33 @@ def copy_document(request, doc_id):
         {"success": True, "document": copied.to_dict()},
         json_dumps_params=JSON_OPTIONS,
     )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def finalize_document_questions(request, doc_id):
+    """
+    试卷题目全部入库后，回填 document.question_ids，并清理解析任务快照 result。
+    POST /api/documents/<id>/finalize-questions/
+    JSON body: { questionIds: [...], taskId?: "..." }
+    """
+    data = _json_body(request)
+    if not data or not isinstance(data.get("questionIds"), list):
+        return JsonResponse({"error": "请提供 questionIds 列表"}, status=400, json_dumps_params=JSON_OPTIONS)
+    try:
+        doc = Document.objects.get(id=doc_id)
+    except Document.DoesNotExist:
+        return JsonResponse({"error": "文档不存在"}, status=404, json_dumps_params=JSON_OPTIONS)
+
+    qids = [str(qid).strip() for qid in data.get("questionIds", []) if str(qid).strip()]
+    doc.question_ids = qids
+    doc.save()
+
+    task_id = str(data.get("taskId") or "").strip()
+    if task_id:
+        task = UploadTask.objects.filter(id=task_id, document_id=str(doc.id)).first()
+        if task:
+            task.result = {}
+            task.save()
+
+    return JsonResponse({"success": True, "document": doc.to_dict()}, json_dumps_params=JSON_OPTIONS)

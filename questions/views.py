@@ -3,6 +3,8 @@
 """
 
 import json
+import hashlib
+import re
 import shutil
 import tempfile
 import urllib.request
@@ -58,6 +60,34 @@ def _json_body(request):
         return json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+def _normalize_text_for_hash(text: str) -> str:
+    """用于题干去重 hash 的轻量规范化。"""
+    s = str(text or "")
+    s = s.replace("\u3000", " ")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _compute_stem_text_hash(question_data: dict) -> str:
+    """
+    仅使用题干 questionBody 中 type=text 的 content 计算哈希。
+    """
+    blocks = question_data.get("questionBody") or []
+    text_parts = []
+    for b in blocks:
+        if not isinstance(b, dict):
+            continue
+        if (b.get("type") or "").strip().lower() != "text":
+            continue
+        content = _normalize_text_for_hash(b.get("content") or "")
+        if content:
+            text_parts.append(content)
+    merged = "\n".join(text_parts).strip()
+    if not merged:
+        return ""
+    return hashlib.sha256(merged.encode("utf-8")).hexdigest()
 
 
 @csrf_exempt
@@ -379,7 +409,27 @@ def save_questions(request):
     sanitize_latex_blocks_in_questions(questions_data)
 
     saved_ids = []
+    skipped_duplicates = []
+    seen_stem_hashes = set()
     for q_data in questions_data:
+        stem_hash = _compute_stem_text_hash(q_data if isinstance(q_data, dict) else {})
+        if stem_hash:
+            if stem_hash in seen_stem_hashes:
+                skipped_duplicates.append({
+                    "index": q_data.get("index") if isinstance(q_data, dict) else None,
+                    "reason": "batch_duplicate",
+                })
+                continue
+            existing = Question.objects.filter(stem_text_hash=stem_hash).only("id", "index").first()
+            if existing:
+                skipped_duplicates.append({
+                    "index": q_data.get("index") if isinstance(q_data, dict) else None,
+                    "reason": "db_duplicate",
+                    "existing_id": str(existing.id),
+                })
+                continue
+            seen_stem_hashes.add(stem_hash)
+
         q = Question.from_parsed(
             q_data,
             source_file=source_file,
@@ -389,6 +439,7 @@ def save_questions(request):
             source_document_filename=source_document_filename,
             presets=presets,
         )
+        q.stem_text_hash = stem_hash or ""
         q.save()
         saved_ids.append(str(q.id))
         upsert_question_vector(q)
@@ -397,6 +448,8 @@ def save_questions(request):
         "success": True,
         "count": len(saved_ids),
         "ids": saved_ids,
+        "skipped_duplicates": skipped_duplicates,
+        "skipped_count": len(skipped_duplicates),
     }, json_dumps_params=JSON_OPTIONS)
 
 
@@ -416,10 +469,15 @@ def list_questions(request):
     region = request.GET.get("region", "").strip()
     scenario = request.GET.get("scenario", "").strip()
     question_type_tag = request.GET.get("question_type_tag", "").strip()  # 题型节点 ID
+    ids_raw = request.GET.get("ids", "").strip()  # 题目 ID 列表（逗号分隔）
 
     qs = Question.objects
     if question_type:
         qs = qs.filter(question_type=question_type)
+    if ids_raw:
+        ids = [i.strip() for i in ids_raw.split(",") if i.strip()]
+        if ids:
+            qs = qs.filter(id__in=ids)
     if question_type_tag:
         qs = qs.filter(question_type_ids=question_type_tag)
     if status and status in ("pending_verification", "online"):

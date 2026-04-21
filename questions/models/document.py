@@ -29,6 +29,7 @@ class Document(me.Document):
     )
     tags = me.ListField(me.StringField(), default=list)  # 标签
     video_url = me.StringField(default="")  # 讲解视频地址
+    question_ids = me.ListField(me.StringField(), default=list)  # 该试卷已入题库的题目 ID 列表
 
     created_at = me.DateTimeField(default=datetime.datetime.utcnow)
     updated_at = me.DateTimeField(default=datetime.datetime.utcnow)
@@ -48,6 +49,7 @@ class Document(me.Document):
             "docType": self.doc_type or "other",
             "tags": self.tags or [],
             "videoUrl": self.video_url or "",
+            "questionIds": self.question_ids or [],
             "createdAt": self.created_at.isoformat() if self.created_at else None,
             "updatedAt": self.updated_at.isoformat() if self.updated_at else None,
         }

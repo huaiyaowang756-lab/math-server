@@ -16,7 +16,7 @@ class Question(me.Document):
         "ordering": ["-created_at"],
         "strict": False,  # 忽略库中已废弃字段（如 single_docx_url），避免 FieldDoesNotExist
         "indexes": ["question_type", "source_file", "created_at",
-                    "difficulty", "categories", "regions", "scenario", "question_type_ids"],
+                    "difficulty", "categories", "regions", "scenario", "question_type_ids", "stem_text_hash"],
     }
 
     index = me.IntField(required=True)
@@ -37,6 +37,7 @@ class Question(me.Document):
     description = me.StringField(default="")             # 题目描述
     features = me.ListField(me.ListField(me.StringField()), default=list)  # 特征 [[title, desc], ...]
     question_type_ids = me.ListField(me.StringField(), default=list)  # 题型节点 ID 列表（题目属于哪些题型）
+    stem_text_hash = me.StringField(default="")  # 仅基于题干 text 块计算的去重哈希
 
     source_file = me.StringField(default="")
     session_id = me.StringField(default="")
