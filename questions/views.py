@@ -454,6 +454,36 @@ def save_questions(request):
 
 
 @csrf_exempt
+@require_http_methods(["POST"])
+def check_question_duplicates(request):
+    """
+    检测题目是否在题库已存在（按题干 text 节点 hash）。
+    POST /api/questions/check-duplicates/
+    JSON body: { questions: [...] }
+    """
+    data = _json_body(request)
+    if not data or not isinstance(data.get("questions"), list):
+        return JsonResponse({"error": "请提供 questions 列表"}, status=400, json_dumps_params=JSON_OPTIONS)
+
+    questions_data = data.get("questions") or []
+    duplicates = []
+    for i, q_data in enumerate(questions_data):
+        if not isinstance(q_data, dict):
+            continue
+        stem_hash = _compute_stem_text_hash(q_data)
+        if not stem_hash:
+            continue
+        existing = Question.objects.filter(stem_text_hash=stem_hash).only("id", "index").first()
+        if existing:
+            duplicates.append({
+                "input_index": i,
+                "existing_id": str(existing.id),
+                "existing_index": existing.index,
+            })
+    return JsonResponse({"duplicates": duplicates}, json_dumps_params=JSON_OPTIONS)
+
+
+@csrf_exempt
 @require_http_methods(["GET"])
 def list_questions(request):
     """

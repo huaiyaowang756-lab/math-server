@@ -29,6 +29,7 @@ urlpatterns = [
     path("upload/tasks/", views.list_upload_tasks, name="list_upload_tasks"),
     path("upload/tasks/<str:task_id>/", views.get_or_delete_upload_task, name="upload_task_detail"),
     path("questions/save/", views.save_questions, name="save_questions"),
+    path("questions/check-duplicates/", views.check_question_duplicates, name="check_question_duplicates"),
     path("auth/register/", views_auth.register, name="auth_register"),
     path("auth/login/", views_auth.login, name="auth_login"),
     path("chat/", views_chat.chat, name="chat"),
