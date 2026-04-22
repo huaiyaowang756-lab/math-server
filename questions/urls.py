@@ -16,6 +16,7 @@ urlpatterns = [
     # 试卷/文档管理
     path("documents/upload/", views_documents.upload_document, name="document_upload"),
     path("documents/folders/create/", views_documents.create_folder, name="document_folder_create"),
+    path("documents/papers/create/", views_documents.create_paper, name="document_paper_create"),
     path("documents/", views_documents.list_documents, name="document_list"),
     path("documents/<str:doc_id>/", views_documents.get_document, name="document_detail"),
     path("documents/<str:doc_id>/update/", views_documents.update_document, name="document_update"),

@@ -16,9 +16,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from mongoengine.queryset.visitor import Q
 
-from .models import Document, UploadTask
+from .models import Document, UploadTask, Question
 from .services.async_task import start_parse_task
 from .services.tos_upload import upload_document_to_tos, DOCUMENT_EXTS
+from .services.docx_exporter import export_questions_docx
 
 JSON_OPTIONS = {"ensure_ascii": False}
 
@@ -33,6 +34,28 @@ def _json_body(request):
 def _root_parent_query():
     """兼容历史数据：根目录可能是空串、null 或字段缺失。"""
     return Q(parent_id="") | Q(parent_id=None) | Q(parent_id__exists=False)
+
+
+def _load_questions_by_ids(ids: list[str]):
+    qids = [str(i).strip() for i in (ids or []) if str(i).strip()]
+    if not qids:
+        return []
+    qs = list(Question.objects.filter(id__in=qids))
+    qmap = {str(q.id): q for q in qs}
+    return [qmap[qid] for qid in qids if qid in qmap]
+
+
+def _question_to_export_dict(q: Question) -> dict:
+    return {
+        "id": str(q.id),
+        "index": q.index,
+        "questionType": q.question_type,
+        "questionBody": [b.to_dict() for b in (q.question_body or [])],
+        "answer": [b.to_dict() for b in (q.answer or [])],
+        "analysis": [b.to_dict() for b in (q.analysis or [])],
+        "detailedSolution": [b.to_dict() for b in (q.detailed_solution or [])],
+        "assetBaseUrl": q.asset_base_url or "",
+    }
 
 
 def _collect_descendant_ids(folder_id):
@@ -213,6 +236,44 @@ def create_folder(request):
 
 
 @csrf_exempt
+@require_http_methods(["POST"])
+def create_paper(request):
+    """
+    创建自组试卷（无原始文档 URL，仅维护题目 ID 列表）。
+    POST /api/documents/papers/create/
+    JSON body: { name, parentId?, questionIds: [...] }
+    """
+    data = _json_body(request)
+    if not data:
+        return JsonResponse({"error": "无效的请求体"}, status=400, json_dumps_params=JSON_OPTIONS)
+    name = str(data.get("name") or "").strip()
+    if not name:
+        return JsonResponse({"error": "试卷名称不能为空"}, status=400, json_dumps_params=JSON_OPTIONS)
+    parent_id = str(data.get("parentId") or "").strip()
+    if parent_id:
+        parent = Document.objects.filter(id=parent_id).first()
+        if not parent or not parent.is_folder:
+            return JsonResponse({"error": "父文件夹不存在"}, status=400, json_dumps_params=JSON_OPTIONS)
+    qids = [str(qid).strip() for qid in (data.get("questionIds") or []) if str(qid).strip()]
+    filename = name if Path(name).suffix else f"{name}.paper"
+    doc = Document(
+        parent_id=parent_id,
+        is_folder=False,
+        url="",
+        filename=filename,
+        description="",
+        doc_type="exam",
+        tags=[],
+        video_url="",
+        question_ids=qids,
+        question_status="imported" if qids else "unimported",
+        order=Document.objects.filter(parent_id=parent_id).count(),
+    )
+    doc.save()
+    return JsonResponse({"success": True, "document": doc.to_dict()}, json_dumps_params=JSON_OPTIONS)
+
+
+@csrf_exempt
 @require_http_methods(["GET"])
 def get_document(request, doc_id):
     try:
@@ -312,6 +373,20 @@ def download_document(request, doc_id):
         return JsonResponse({"error": "文件夹不支持下载"}, status=400, json_dumps_params=JSON_OPTIONS)
 
     filename = doc.filename or "document"
+    if not doc.url and (doc.question_ids or []):
+        questions = _load_questions_by_ids(doc.question_ids or [])
+        if not questions:
+            return JsonResponse({"error": "该试卷未关联可下载题目"}, status=400, json_dumps_params=JSON_OPTIONS)
+        payload_questions = [_question_to_export_dict(q) for q in questions]
+        buf = export_questions_docx(payload_questions, mode="teacher")
+        from urllib.parse import quote
+        download_name = Path(filename).stem or "试卷"
+        response = HttpResponse(
+            buf.read(),
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        response["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(download_name)}.docx"
+        return response
     if not Path(filename).suffix:
         ext = Path(doc.url).suffix
         if ext:
